@@ -72,6 +72,40 @@ CREATE TABLE sale_items (
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
+CREATE TABLE invoices (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  sale_id INT NOT NULL UNIQUE,
+  invoice_number VARCHAR(80) NOT NULL UNIQUE,
+  customer_id INT NOT NULL,
+  user_id INT NOT NULL,
+  total_amount DECIMAL(12,2) NOT NULL,
+  discount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  grand_total DECIMAL(12,2) NOT NULL,
+  payment_received DECIMAL(12,2) NOT NULL DEFAULT 0,
+  remaining_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+  sale_type ENUM('cash','credit') NOT NULL DEFAULT 'cash',
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
+  FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_invoices_customer_id ON invoices(customer_id);
+CREATE INDEX idx_invoices_sale_type ON invoices(sale_type);
+CREATE INDEX idx_invoices_created_at ON invoices(created_at);
+
+CREATE TABLE invoice_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  invoice_id INT NOT NULL,
+  product_id INT NOT NULL,
+  quantity INT NOT NULL,
+  unit_price DECIMAL(12,2) NOT NULL,
+  subtotal DECIMAL(12,2) NOT NULL,
+  created_at DATETIME NOT NULL,
+  FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
 CREATE TABLE payments (
   id INT AUTO_INCREMENT PRIMARY KEY,
   customer_id INT NOT NULL,

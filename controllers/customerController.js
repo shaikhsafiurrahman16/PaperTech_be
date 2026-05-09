@@ -25,7 +25,10 @@ async function createCustomer(req, res, next) {
 
 async function listCustomers(req, res, next) {
   try {
-    const [rows] = await pool.query('SELECT id, full_name, phone, shop_name, address, cnic, credit_limit, current_balance, username, created_at FROM customers');
+    const [rows] = await pool.query(
+      "SELECT id, full_name, phone, shop_name, address, cnic, credit_limit, current_balance, username, created_at FROM customers WHERE username != ? ORDER BY created_at DESC",
+      ['walkin_customer']
+    );
     res.json({ success: true, data: rows });
   } catch (error) {
     next(error);

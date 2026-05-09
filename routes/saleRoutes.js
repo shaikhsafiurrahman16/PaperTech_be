@@ -3,7 +3,7 @@ const { body } = require('express-validator');
 const { protect } = require('../middleware/authMiddleware');
 const { authorize } = require('../middleware/roleMiddleware');
 const { validateRequest } = require('../middleware/validateMiddleware');
-const { createSale, listSales, getSaleDetails } = require('../controllers/saleController');
+const { createSale, listSales, getSaleDetails, updateSale, deleteSale } = require('../controllers/saleController');
 
 const router = express.Router();
 router.use(protect);
@@ -14,7 +14,12 @@ router.post(
   '/',
   authorize('admin'),
   [
-    body('customer_id').isInt().withMessage('Customer is required'),
+    body('customer_id')
+      .optional({ nullable: true })
+      .isInt().withMessage('Customer ID must be a valid number'),
+    body('sale_type')
+      .optional()
+      .isIn(['cash', 'credit']).withMessage('Sale type must be cash or credit'),
     body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
     body('discount').optional().isFloat({ min: 0 }).withMessage('Discount must be a number'),
     body('payment_received').optional().isFloat({ min: 0 }).withMessage('Payment must be a number'),
@@ -22,5 +27,21 @@ router.post(
   validateRequest,
   createSale
 );
+
+router.put(
+  '/:id',
+  authorize('admin'),
+  [
+    body('sale_type')
+      .optional()
+      .isIn(['cash', 'credit']).withMessage('Sale type must be cash or credit'),
+    body('discount').optional().isFloat({ min: 0 }).withMessage('Discount must be a number'),
+    body('payment_received').optional().isFloat({ min: 0 }).withMessage('Payment must be a number'),
+  ],
+  validateRequest,
+  updateSale
+);
+
+router.delete('/:id', authorize('admin'), deleteSale);
 
 module.exports = router;
