@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS products (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(200) NOT NULL,
   product_type VARCHAR(120) NOT NULL,
+  size VARCHAR(50),
+  gram INT DEFAULT 0,
   unit_type VARCHAR(80) NOT NULL,
   sheets_per_pack INT DEFAULT 0,
   cost_price DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -148,3 +150,43 @@ CREATE TABLE IF NOT EXISTS stock_history (
   created_at DATETIME NOT NULL,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
+
+-- Product attribute migration for existing databases.
+SET @products_schema_name = DATABASE();
+
+SET @add_product_size_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE products ADD COLUMN size VARCHAR(50) NULL AFTER product_type',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = @products_schema_name
+    AND TABLE_NAME = 'products'
+    AND COLUMN_NAME = 'size'
+);
+PREPARE add_product_size_stmt FROM @add_product_size_sql;
+EXECUTE add_product_size_stmt;
+DEALLOCATE PREPARE add_product_size_stmt;
+
+SET @add_product_gram_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE products ADD COLUMN gram INT DEFAULT 0 AFTER size',
+    'SELECT 1'
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = @products_schema_name
+    AND TABLE_NAME = 'products'
+    AND COLUMN_NAME = 'gram'
+);
+PREPARE add_product_gram_stmt FROM @add_product_gram_sql;
+EXECUTE add_product_gram_stmt;
+DEALLOCATE PREPARE add_product_gram_stmt;
+
+UPDATE products
+SET sheets_per_pack = CASE
+  WHEN LOWER(unit_type) = 'paper' THEN 500
+  WHEN LOWER(unit_type) IN ('card', 'sticker') THEN 100
+  ELSE sheets_per_pack
+END;

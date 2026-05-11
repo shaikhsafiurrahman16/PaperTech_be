@@ -27,7 +27,7 @@ async function protect(req, res, next) {
     
     // Check if user is a customer
     if (decoded.role === 'customer') {
-      const [rows] = await pool.query('SELECT id, full_name, username, role FROM customers WHERE id = ? AND customer_type = "star"', [decoded.id]);
+      const [rows] = await pool.query('SELECT id, full_name, username FROM customers WHERE id = ? AND customer_type = "star"', [decoded.id]);
       if (rows.length) {
         req.user = { ...rows[0], role: 'customer' };
         return next();

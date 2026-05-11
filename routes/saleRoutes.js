@@ -8,7 +8,7 @@ const { createSale, listSales, getSaleDetails, updateSale, deleteSale } = requir
 const router = express.Router();
 router.use(protect);
 
-router.get('/', authorize('admin'), listSales);
+router.get('/', authorize('admin', 'customer'), listSales);
 router.get('/:id', authorize('admin', 'customer'), getSaleDetails);
 router.post(
   '/',

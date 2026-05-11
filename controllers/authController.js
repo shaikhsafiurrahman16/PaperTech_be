@@ -7,7 +7,10 @@ async function login(req, res, next) {
     const { username, password } = req.body;
     
     // پہلے admin/users میں تلاش کریں
-    const [adminRows] = await pool.query('SELECT id, full_name, username, password, role FROM users WHERE username = ?', [username]);
+    const [adminRows] = await pool.query(
+      'SELECT id, full_name, username, password, role FROM users WHERE username = ? AND role = "admin"',
+      [username]
+    );
     
     if (adminRows.length) {
       const user = adminRows[0];

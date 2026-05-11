@@ -121,13 +121,10 @@ async function createSale(req, res, next) {
       );
 
       const paymentId = paymentResult.insertId;
-      const prevBalance = currentBalance;
-      currentBalance = Math.max(0, currentBalance - paymentReceived);
-      await connection.execute('UPDATE customers SET current_balance = ? WHERE id = ?', [currentBalance, customerId]);
       await connection.execute(
         `INSERT INTO ledger_entries (customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [customerId, saleId, paymentId, 'payment', paymentReceived, prevBalance, currentBalance, `Payment for ${invoiceNumber}`]
+        [customerId, saleId, paymentId, 'payment', paymentReceived, currentBalance, currentBalance, `Payment for ${invoiceNumber}`]
       );
     }
 
@@ -202,6 +199,9 @@ async function getSaleDetails(req, res, next) {
     );
     if (!saleRows.length) {
       return res.status(404).json({ success: false, message: 'Sale not found' });
+    }
+    if (req.user?.role === 'customer' && Number(saleRows[0].customer_id) !== Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
     const [items] = await pool.query(
@@ -283,12 +283,10 @@ async function updateSale(req, res, next) {
         [customer.id, sale.user_id, id, paymentDelta, 'cash', 'Additional sale payment']
       );
       const paymentId = paymentResult.insertId;
-      const oldBalance = currentBalance;
-      currentBalance = Math.max(0, currentBalance - paymentDelta);
       await connection.execute(
         `INSERT INTO ledger_entries (customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [customer.id, id, paymentId, 'payment', paymentDelta, oldBalance, currentBalance, `Additional payment for ${sale.invoice_number}`]
+        [customer.id, id, paymentId, 'payment', paymentDelta, currentBalance, currentBalance, `Additional payment for ${sale.invoice_number}`]
       );
     }
 
