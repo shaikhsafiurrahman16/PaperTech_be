@@ -263,6 +263,11 @@ async function updateSale(req, res, next) {
       [discountValue, newGrandTotal, newPayment, newRemaining, adjustedSaleType, id]
     );
 
+    await connection.execute(
+      `UPDATE invoices SET total_amount = ?, discount = ?, grand_total = ?, payment_received = ?, remaining_balance = ?, sale_type = ?, updated_at = NOW() WHERE sale_id = ?`,
+      [totalAmount, discountValue, newGrandTotal, newPayment, newRemaining, adjustedSaleType, id]
+    );
+
     if (remainingDelta !== 0) {
       await connection.execute(
         `INSERT INTO ledger_entries (customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)

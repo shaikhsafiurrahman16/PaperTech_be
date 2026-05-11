@@ -1,7 +1,7 @@
-CREATE DATABASE papertech;
+CREATE DATABASE IF NOT EXISTS papertech;
 USE papertech;
 
-CREATE TABLE  users (
+CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   full_name VARCHAR(150) NOT NULL,
   username VARCHAR(100) NOT NULL UNIQUE,
@@ -11,7 +11,7 @@ CREATE TABLE  users (
   updated_at DATETIME NOT NULL 
 );
 
-CREATE TABLE customers (
+CREATE TABLE IF NOT EXISTS customers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   full_name VARCHAR(150) NOT NULL,
   phone VARCHAR(50) NOT NULL UNIQUE,
@@ -28,7 +28,7 @@ CREATE TABLE customers (
   UNIQUE KEY unique_star_customer (username)
 );
 
-CREATE TABLE products (
+CREATE TABLE IF NOT EXISTS products (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(200) NOT NULL,
   product_type VARCHAR(120) NOT NULL,
@@ -43,7 +43,7 @@ CREATE TABLE products (
   updated_at DATETIME NOT NULL
 );
 
-CREATE TABLE sales (
+CREATE TABLE IF NOT EXISTS sales (
   id INT AUTO_INCREMENT PRIMARY KEY,
   invoice_number VARCHAR(80) NOT NULL UNIQUE,
   customer_id INT NOT NULL,
@@ -60,7 +60,7 @@ CREATE TABLE sales (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE sale_items (
+CREATE TABLE IF NOT EXISTS sale_items (
   id INT AUTO_INCREMENT PRIMARY KEY,
   sale_id INT NOT NULL,
   product_id INT NOT NULL,
@@ -72,7 +72,7 @@ CREATE TABLE sale_items (
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
-CREATE TABLE invoices (
+CREATE TABLE IF NOT EXISTS invoices (
   id INT AUTO_INCREMENT PRIMARY KEY,
   sale_id INT NOT NULL UNIQUE,
   invoice_number VARCHAR(80) NOT NULL UNIQUE,
@@ -94,7 +94,7 @@ CREATE INDEX idx_invoices_customer_id ON invoices(customer_id);
 CREATE INDEX idx_invoices_sale_type ON invoices(sale_type);
 CREATE INDEX idx_invoices_created_at ON invoices(created_at);
 
-CREATE TABLE invoice_items (
+CREATE TABLE IF NOT EXISTS invoice_items (
   id INT AUTO_INCREMENT PRIMARY KEY,
   invoice_id INT NOT NULL,
   product_id INT NOT NULL,
@@ -106,7 +106,7 @@ CREATE TABLE invoice_items (
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
-CREATE TABLE payments (
+CREATE TABLE IF NOT EXISTS payments (
   id INT AUTO_INCREMENT PRIMARY KEY,
   customer_id INT NOT NULL,
   user_id INT NOT NULL,
@@ -120,7 +120,7 @@ CREATE TABLE payments (
   FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL
 );
 
-CREATE TABLE ledger_entries (
+CREATE TABLE IF NOT EXISTS ledger_entries (
   id INT AUTO_INCREMENT PRIMARY KEY,
   customer_id INT NOT NULL,
   sale_id INT DEFAULT NULL,
@@ -136,7 +136,7 @@ CREATE TABLE ledger_entries (
   FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL
 );
 
-CREATE TABLE stock_history (
+CREATE TABLE IF NOT EXISTS stock_history (
   id INT AUTO_INCREMENT PRIMARY KEY,
   product_id INT NOT NULL,
   change_type VARCHAR(80) NOT NULL,
