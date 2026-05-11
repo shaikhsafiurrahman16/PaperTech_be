@@ -161,14 +161,40 @@ async function addPayment(req, res, next) {
 
 async function listPayments(req, res, next) {
   try {
-    const [rows] = await pool.query(
+    const { customer_id, from_date, to_date, search } = req.query;
+    const params = [];
+    let query =
       `SELECT p.id, p.customer_id, c.shop_name, c.full_name, p.amount, p.payment_method, p.notes, p.created_at
        , p.sale_id, s.invoice_number
        FROM payments p
        LEFT JOIN customers c ON c.id = p.customer_id
        LEFT JOIN sales s ON s.id = p.sale_id
-       ORDER BY p.created_at DESC`
-    );
+       WHERE 1=1`;
+
+    if (customer_id) {
+      query += ' AND p.customer_id = ?';
+      params.push(customer_id);
+    }
+
+    if (search) {
+      query += ' AND (c.shop_name LIKE ? OR c.full_name LIKE ? OR c.phone LIKE ?)';
+      const searchTerm = `%${search}%`;
+      params.push(searchTerm, searchTerm, searchTerm);
+    }
+
+    if (from_date) {
+      query += ' AND DATE(p.created_at) >= ?';
+      params.push(from_date);
+    }
+
+    if (to_date) {
+      query += ' AND DATE(p.created_at) <= ?';
+      params.push(to_date);
+    }
+
+    query += ' ORDER BY p.created_at DESC';
+
+    const [rows] = await pool.query(query, params);
     res.json({ success: true, data: rows });
   } catch (error) {
     next(error);
