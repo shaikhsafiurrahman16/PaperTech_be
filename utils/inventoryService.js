@@ -24,4 +24,17 @@ async function updateProductStock(connection, productId, quantity, referenceType
   await createStockHistory(connection, productId, quantity, newStock, referenceType, referenceId, notes);
 }
 
-module.exports = { updateProductStock };
+async function increaseProductStock(connection, productId, quantity, referenceType, referenceId, notes) {
+  const [productRows] = await connection.execute('SELECT current_stock FROM products WHERE id = ?', [productId]);
+  if (!productRows.length) {
+    throw new Error('Product not found');
+  }
+
+  const currentStock = Number(productRows[0].current_stock || 0);
+  const newStock = currentStock + Number(quantity || 0);
+
+  await connection.execute('UPDATE products SET current_stock = ?, updated_at = NOW() WHERE id = ?', [newStock, productId]);
+  await createStockHistory(connection, productId, quantity, newStock, referenceType, referenceId, notes);
+}
+
+module.exports = { updateProductStock, increaseProductStock };

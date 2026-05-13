@@ -34,6 +34,15 @@ async function protect(req, res, next) {
       }
     }
 
+    // Check if user is a vendor
+    if (decoded.role === 'vendor') {
+      const [rows] = await pool.query('SELECT id, full_name, username FROM vendors WHERE id = ?', [decoded.id]);
+      if (rows.length) {
+        req.user = { ...rows[0], role: 'vendor' };
+        return next();
+      }
+    }
+
     return res.status(401).json({ success: false, message: 'Invalid token' });
   } catch (error) {
     return res.status(401).json({ success: false, message: 'Token is not valid' });

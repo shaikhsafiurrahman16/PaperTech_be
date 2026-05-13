@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   full_name VARCHAR(150) NOT NULL,
   username VARCHAR(100) NOT NULL UNIQUE,
   password VARCHAR(255) NOT NULL,
-  role ENUM('admin','customer') NOT NULL DEFAULT 'admin',
+  role ENUM('admin','customer','vendor') NOT NULL DEFAULT 'admin',
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL 
 );
@@ -26,6 +26,21 @@ CREATE TABLE IF NOT EXISTS customers (
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL,
   UNIQUE KEY unique_star_customer (username)
+);
+
+CREATE TABLE IF NOT EXISTS vendors (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(150) NOT NULL,
+  phone VARCHAR(50) NOT NULL UNIQUE,
+  company_name VARCHAR(150) NOT NULL,
+  address TEXT,
+  cnic VARCHAR(30),
+  opening_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+  current_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+  username VARCHAR(100) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS products (
@@ -106,6 +121,65 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   created_at DATETIME NOT NULL,
   FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS purchases (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  purchase_number VARCHAR(80) NOT NULL UNIQUE,
+  vendor_id INT NOT NULL,
+  user_id INT NOT NULL,
+  total_amount DECIMAL(12,2) NOT NULL,
+  discount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  grand_total DECIMAL(12,2) NOT NULL,
+  payment_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+  remaining_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+  purchase_type ENUM('cash','credit') NOT NULL DEFAULT 'cash',
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS purchase_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  purchase_id INT NOT NULL,
+  product_id INT NOT NULL,
+  quantity INT NOT NULL,
+  unit_price DECIMAL(12,2) NOT NULL,
+  subtotal DECIMAL(12,2) NOT NULL,
+  created_at DATETIME NOT NULL,
+  FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS vendor_payments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  user_id INT NOT NULL,
+  purchase_id INT DEFAULT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  payment_method VARCHAR(80) NOT NULL DEFAULT 'cash',
+  notes TEXT,
+  created_at DATETIME NOT NULL,
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_ledger_entries (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor_id INT NOT NULL,
+  purchase_id INT DEFAULT NULL,
+  payment_id INT DEFAULT NULL,
+  transaction_type ENUM('purchase','payment','adjustment') NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  previous_balance DECIMAL(12,2) NOT NULL,
+  current_balance DECIMAL(12,2) NOT NULL,
+  remarks TEXT,
+  created_at DATETIME NOT NULL,
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE SET NULL,
+  FOREIGN KEY (payment_id) REFERENCES vendor_payments(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS payments (
