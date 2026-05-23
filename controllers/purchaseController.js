@@ -4,6 +4,7 @@ const { increaseProductStock } = require('../utils/inventoryService');
 async function createPurchase(req, res, next) {
   const connection = await pool.getConnection();
   try {
+    const companyId = req.user.company_id;
     let { vendor_id, items, discount = 0, payment_paid = 0, purchase_type = 'cash' } = req.body;
     discount = Number(discount) || 0;
     payment_paid = Number(payment_paid) || 0;
@@ -18,7 +19,7 @@ async function createPurchase(req, res, next) {
 
     await connection.beginTransaction();
 
-    const [vendorRows] = await connection.execute('SELECT id, current_balance FROM vendors WHERE id = ?', [vendor_id]);
+    const [vendorRows] = await connection.execute('SELECT id, current_balance FROM vendors WHERE id = ? AND company_id = ?', [vendor_id, companyId]);
     if (!vendorRows.length) {
       throw { statusCode: 404, message: 'Vendor not found' };
     }
@@ -46,21 +47,21 @@ async function createPurchase(req, res, next) {
 
     const [purchaseResult] = await connection.execute(
       `INSERT INTO purchases
-       (purchase_number, vendor_id, user_id, total_amount, discount, grand_total, payment_paid, remaining_balance, purchase_type, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [purchaseNumber, vendor_id, req.user.id, totalAmount, discount, grandTotal, paymentPaid, remainingBalance, purchase_type]
+       (company_id, purchase_number, vendor_id, user_id, total_amount, discount, grand_total, payment_paid, remaining_balance, purchase_type, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      [companyId, purchaseNumber, vendor_id, req.user.id, totalAmount, discount, grandTotal, paymentPaid, remainingBalance, purchase_type]
     );
 
     const purchaseId = purchaseResult.insertId;
     for (const item of validatedItems) {
       const subtotal = item.quantity * item.unit_price;
       await connection.execute(
-        `INSERT INTO purchase_items (purchase_id, product_id, quantity, unit_price, subtotal, created_at)
-         VALUES (?, ?, ?, ?, ?, NOW())`,
-        [purchaseId, item.product_id, item.quantity, item.unit_price, subtotal]
+        `INSERT INTO purchase_items (company_id, purchase_id, product_id, quantity, unit_price, subtotal, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+        [companyId, purchaseId, item.product_id, item.quantity, item.unit_price, subtotal]
       );
-      await increaseProductStock(connection, item.product_id, item.quantity, 'purchase', purchaseId, `Purchase ${purchaseNumber}`);
-      await connection.execute('UPDATE products SET cost_price = ? WHERE id = ?', [item.unit_price, item.product_id]);
+      await increaseProductStock(connection, companyId, item.product_id, item.quantity, 'purchase', purchaseId, `Purchase ${purchaseNumber}`);
+      await connection.execute('UPDATE products SET cost_price = ? WHERE id = ? AND company_id = ?', [item.unit_price, item.product_id, companyId]);
     }
 
     const previousBalance = Number(vendorRows[0].current_balance || 0);
@@ -69,23 +70,23 @@ async function createPurchase(req, res, next) {
       await connection.execute('UPDATE vendors SET current_balance = ? WHERE id = ?', [currentBalance, vendor_id]);
       await connection.execute(
         `INSERT INTO vendor_ledger_entries
-         (vendor_id, purchase_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-         VALUES (?, ?, NULL, 'purchase', ?, ?, ?, ?, NOW())`,
-        [vendor_id, purchaseId, grandTotal, previousBalance, currentBalance, `Purchase ${purchaseNumber}`]
+         (company_id, vendor_id, purchase_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+         VALUES (?, ?, ?, NULL, 'purchase', ?, ?, ?, ?, NOW())`,
+        [companyId, vendor_id, purchaseId, grandTotal, previousBalance, currentBalance, `Purchase ${purchaseNumber}`]
       );
     }
 
     if (paymentPaid > 0) {
       const [paymentResult] = await connection.execute(
-        `INSERT INTO vendor_payments (vendor_id, user_id, purchase_id, amount, payment_method, notes, created_at)
-         VALUES (?, ?, ?, ?, 'cash', 'Purchase payment', NOW())`,
-        [vendor_id, req.user.id, purchaseId, paymentPaid]
+        `INSERT INTO vendor_payments (company_id, vendor_id, user_id, purchase_id, amount, payment_method, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, 'cash', 'Purchase payment', NOW())`,
+        [companyId, vendor_id, req.user.id, purchaseId, paymentPaid]
       );
       await connection.execute(
         `INSERT INTO vendor_ledger_entries
-         (vendor_id, purchase_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-         VALUES (?, ?, ?, 'payment', ?, ?, ?, ?, NOW())`,
-        [vendor_id, purchaseId, paymentResult.insertId, paymentPaid, currentBalance, currentBalance, `Payment for ${purchaseNumber}`]
+         (company_id, vendor_id, purchase_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+         VALUES (?, ?, ?, ?, 'payment', ?, ?, ?, ?, NOW())`,
+        [companyId, vendor_id, purchaseId, paymentResult.insertId, paymentPaid, currentBalance, currentBalance, `Payment for ${purchaseNumber}`]
       );
     }
 
@@ -110,7 +111,8 @@ async function listPurchases(req, res, next) {
        p.payment_paid, p.remaining_balance, p.purchase_type, p.created_at, p.vendor_id
        FROM purchases p
        LEFT JOIN vendors v ON v.id = p.vendor_id
-       WHERE 1=1`;
+       WHERE p.company_id = ?`;
+    params.push(req.user.company_id);
 
     if (req.user && req.user.role === 'vendor') {
       query += ' AND p.vendor_id = ?';
@@ -157,8 +159,8 @@ async function getPurchaseDetails(req, res, next) {
       `SELECT p.*, v.full_name, v.company_name, v.phone, v.username
        FROM purchases p
        LEFT JOIN vendors v ON v.id = p.vendor_id
-       WHERE p.id = ?`,
-      [id]
+       WHERE p.id = ? AND p.company_id = ?`,
+      [id, req.user.company_id]
     );
     if (!purchaseRows.length) {
       return res.status(404).json({ success: false, message: 'Purchase not found' });
@@ -171,8 +173,8 @@ async function getPurchaseDetails(req, res, next) {
       `SELECT pi.*, pr.name as product_name
        FROM purchase_items pi
        LEFT JOIN products pr ON pr.id = pi.product_id
-       WHERE pi.purchase_id = ?`,
-      [id]
+       WHERE pi.purchase_id = ? AND pi.company_id = ?`,
+      [id, req.user.company_id]
     );
 
     res.json({ success: true, data: { purchase: purchaseRows[0], items } });
@@ -189,13 +191,13 @@ async function updatePurchase(req, res, next) {
     const discountValue = Number(discount) || 0;
     const paymentValue = Number(payment_paid) || 0;
 
-    const [purchaseRows] = await connection.execute('SELECT * FROM purchases WHERE id = ?', [id]);
+    const [purchaseRows] = await connection.execute('SELECT * FROM purchases WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!purchaseRows.length) {
       return res.status(404).json({ success: false, message: 'Purchase not found' });
     }
 
     const purchase = purchaseRows[0];
-    const [vendorRows] = await connection.execute('SELECT id, current_balance FROM vendors WHERE id = ?', [purchase.vendor_id]);
+    const [vendorRows] = await connection.execute('SELECT id, current_balance FROM vendors WHERE id = ? AND company_id = ?', [purchase.vendor_id, req.user.company_id]);
     if (!vendorRows.length) {
       return res.status(404).json({ success: false, message: 'Vendor not found' });
     }
@@ -220,8 +222,8 @@ async function updatePurchase(req, res, next) {
     await connection.execute(
       `UPDATE purchases
        SET discount = ?, grand_total = ?, payment_paid = ?, remaining_balance = ?, purchase_type = ?, updated_at = NOW()
-       WHERE id = ?`,
-      [discountValue, newGrandTotal, newPayment, newRemaining, purchase_type, id]
+       WHERE id = ? AND company_id = ?`,
+      [discountValue, newGrandTotal, newPayment, newRemaining, purchase_type, id, req.user.company_id]
     );
 
     let runningBalance = Number(vendorRows[0].current_balance || 0);
@@ -230,25 +232,25 @@ async function updatePurchase(req, res, next) {
       const nextBalance = Math.max(0, runningBalance + grandDelta);
       await connection.execute(
         `INSERT INTO vendor_ledger_entries
-         (vendor_id, purchase_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-         VALUES (?, ?, NULL, 'adjustment', ?, ?, ?, ?, NOW())`,
-        [purchase.vendor_id, id, Math.abs(grandDelta), runningBalance, nextBalance, `Purchase update ${purchase.purchase_number}`]
+         (company_id, vendor_id, purchase_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+         VALUES (?, ?, ?, NULL, 'adjustment', ?, ?, ?, ?, NOW())`,
+        [req.user.company_id, purchase.vendor_id, id, Math.abs(grandDelta), runningBalance, nextBalance, `Purchase update ${purchase.purchase_number}`]
       );
       runningBalance = nextBalance;
     }
 
     if (paymentDelta > 0) {
       const [paymentResult] = await connection.execute(
-        `INSERT INTO vendor_payments (vendor_id, user_id, purchase_id, amount, payment_method, notes, created_at)
-         VALUES (?, ?, ?, ?, 'cash', 'Additional purchase payment', NOW())`,
-        [purchase.vendor_id, req.user.id, id, paymentDelta]
+        `INSERT INTO vendor_payments (company_id, vendor_id, user_id, purchase_id, amount, payment_method, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, 'cash', 'Additional purchase payment', NOW())`,
+        [req.user.company_id, purchase.vendor_id, req.user.id, id, paymentDelta]
       );
       const nextBalance = Math.max(0, runningBalance - paymentDelta);
       await connection.execute(
         `INSERT INTO vendor_ledger_entries
-         (vendor_id, purchase_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-         VALUES (?, ?, ?, 'payment', ?, ?, ?, ?, NOW())`,
-        [purchase.vendor_id, id, paymentResult.insertId, paymentDelta, runningBalance, nextBalance, `Additional payment for ${purchase.purchase_number}`]
+         (company_id, vendor_id, purchase_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+         VALUES (?, ?, ?, ?, 'payment', ?, ?, ?, ?, NOW())`,
+        [req.user.company_id, purchase.vendor_id, id, paymentResult.insertId, paymentDelta, runningBalance, nextBalance, `Additional payment for ${purchase.purchase_number}`]
       );
       runningBalance = nextBalance;
     }

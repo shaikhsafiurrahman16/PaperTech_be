@@ -15,28 +15,33 @@ async function protect(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // First check if user is an admin
-    if (decoded.role === 'admin') {
-      const [rows] = await pool.query('SELECT id, full_name, username, role FROM users WHERE id = ?', [decoded.id]);
+
+    if (decoded.role === 'super_admin') {
+      const [rows] = await pool.query('SELECT id, full_name, username, role FROM users WHERE id = ? AND role = "super_admin"', [decoded.id]);
       if (rows.length) {
         req.user = rows[0];
         return next();
       }
     }
-    
-    // Check if user is a customer
+
+    if (decoded.role === 'admin') {
+      const [rows] = await pool.query('SELECT id, full_name, username, role, company_id FROM users WHERE id = ? AND role = "admin"', [decoded.id]);
+      if (rows.length) {
+        req.user = rows[0];
+        return next();
+      }
+    }
+
     if (decoded.role === 'customer') {
-      const [rows] = await pool.query('SELECT id, full_name, username FROM customers WHERE id = ? AND customer_type = "star"', [decoded.id]);
+      const [rows] = await pool.query('SELECT id, full_name, username, company_id FROM customers WHERE id = ? AND customer_type = "star"', [decoded.id]);
       if (rows.length) {
         req.user = { ...rows[0], role: 'customer' };
         return next();
       }
     }
 
-    // Check if user is a vendor
     if (decoded.role === 'vendor') {
-      const [rows] = await pool.query('SELECT id, full_name, username FROM vendors WHERE id = ?', [decoded.id]);
+      const [rows] = await pool.query('SELECT id, full_name, username, company_id FROM vendors WHERE id = ?', [decoded.id]);
       if (rows.length) {
         req.user = { ...rows[0], role: 'vendor' };
         return next();

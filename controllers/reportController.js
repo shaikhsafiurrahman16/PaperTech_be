@@ -19,24 +19,26 @@ async function dashboardSummary(req, res, next) {
     const salesParams = [];
     const customerParams = [];
     const salesQuery = addDateFilters(
-      'SELECT SUM(s.grand_total) as total_sales, COUNT(*) as total_invoices, SUM(s.remaining_balance) as total_pending_payments FROM sales s WHERE 1=1',
+      'SELECT SUM(s.grand_total) as total_sales, COUNT(*) as total_invoices, SUM(s.remaining_balance) as total_pending_payments FROM sales s WHERE s.company_id = ?',
       salesParams,
       's',
       from_date,
       to_date
     );
+    salesParams.unshift(req.user.company_id);
     const customersQuery = addDateFilters(
-      'SELECT COUNT(*) as total_customers FROM customers c WHERE 1=1',
+      'SELECT COUNT(*) as total_customers FROM customers c WHERE c.company_id = ?',
       customerParams,
       'c',
       from_date,
       to_date
     );
+    customerParams.unshift(req.user.company_id);
 
     const [salesRows] = await pool.query(salesQuery, salesParams);
     const [customersRows] = await pool.query(customersQuery, customerParams);
-    const [stockRows] = await pool.query('SELECT SUM(current_stock) as total_stock FROM products');
-    const [lowStockRows] = await pool.query('SELECT COUNT(*) as low_stock_count FROM products WHERE current_stock <= min_stock_alert');
+    const [stockRows] = await pool.query('SELECT SUM(current_stock) as total_stock FROM products WHERE company_id = ?', [req.user.company_id]);
+    const [lowStockRows] = await pool.query('SELECT COUNT(*) as low_stock_count FROM products WHERE company_id = ? AND current_stock <= min_stock_alert', [req.user.company_id]);
 
     res.json({
       success: true,
@@ -60,7 +62,8 @@ async function monthlySales(req, res, next) {
     let query =
       `SELECT DATE_FORMAT(created_at, '%Y-%m') as period, SUM(grand_total) as total_sales, SUM(payment_received) as total_received
        FROM sales
-       WHERE 1=1`;
+       WHERE company_id = ?`;
+    params.push(req.user.company_id);
 
     query = addDateFilters(query, params, 'sales', from_date, to_date);
     query += ` GROUP BY period
@@ -79,7 +82,8 @@ async function outstandingBalances(req, res, next) {
     const { from_date, to_date } = req.query;
     if (!from_date && !to_date) {
       const [rows] = await pool.query(
-        'SELECT id, full_name, shop_name, phone, current_balance FROM customers WHERE current_balance > 0 ORDER BY current_balance DESC'
+        'SELECT id, full_name, shop_name, phone, current_balance FROM customers WHERE company_id = ? AND current_balance > 0 ORDER BY current_balance DESC',
+        [req.user.company_id]
       );
       return res.json({ success: true, data: rows });
     }
@@ -89,7 +93,8 @@ async function outstandingBalances(req, res, next) {
               COALESCE(SUM(s.remaining_balance), 0) as current_balance
        FROM customers c
        LEFT JOIN sales s ON s.customer_id = c.id
-       WHERE 1=1`;
+       WHERE c.company_id = ?`;
+    params.push(req.user.company_id);
 
     query = addDateFilters(query, params, 's', from_date, to_date);
     query += ` GROUP BY c.id, c.full_name, c.shop_name, c.phone, c.current_balance
@@ -105,7 +110,7 @@ async function outstandingBalances(req, res, next) {
 
 async function stockReport(req, res, next) {
   try {
-    const [rows] = await pool.query('SELECT id, name, product_type, current_stock, min_stock_alert FROM products ORDER BY current_stock ASC');
+    const [rows] = await pool.query('SELECT id, name, product_type, current_stock, min_stock_alert FROM products WHERE company_id = ? ORDER BY current_stock ASC', [req.user.company_id]);
     res.json({ success: true, data: rows });
   } catch (error) {
     next(error);
@@ -122,7 +127,8 @@ async function profitReport(req, res, next) {
        FROM sale_items si
        LEFT JOIN products p ON p.id = si.product_id
        LEFT JOIN sales s ON s.id = si.sale_id
-       WHERE 1=1`;
+       WHERE s.company_id = ?`;
+    params.push(req.user.company_id);
 
     query = addDateFilters(query, params, 's', from_date, to_date);
     query += ` GROUP BY date

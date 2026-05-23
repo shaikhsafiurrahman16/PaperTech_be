@@ -10,6 +10,8 @@ const purchaseRoutes = require('./purchaseRoutes');
 const vendorRoutes = require('./vendorRoutes');
 const vendorPaymentRoutes = require('./vendorPaymentRoutes');
 const vendorLedgerRoutes = require('./vendorLedgerRoutes');
+const chatRoutes = require('./chatRoutes');
+const companyRoutes = require('./companyRoutes');
 
 const router = express.Router();
 
@@ -24,5 +26,7 @@ router.use('/purchases', purchaseRoutes);
 router.use('/vendors', vendorRoutes);
 router.use('/vendor-payments', vendorPaymentRoutes);
 router.use('/vendor-ledger', vendorLedgerRoutes);
+router.use('/chat', chatRoutes);
+router.use('/companies', companyRoutes);
 
 module.exports = router;

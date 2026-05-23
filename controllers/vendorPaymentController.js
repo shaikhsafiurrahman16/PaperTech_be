@@ -1,10 +1,10 @@
 const pool = require('../config/db');
 
-async function findPaymentTarget(connection, vendorId, purchaseId) {
+async function findPaymentTarget(connection, companyId, vendorId, purchaseId) {
   if (purchaseId) {
     const [purchaseRows] = await connection.execute(
-      'SELECT id, grand_total, payment_paid, remaining_balance FROM purchases WHERE id = ? AND vendor_id = ?',
-      [purchaseId, vendorId]
+      'SELECT id, grand_total, payment_paid, remaining_balance FROM purchases WHERE id = ? AND vendor_id = ? AND company_id = ?',
+      [purchaseId, vendorId, companyId]
     );
     if (!purchaseRows.length) {
       throw { statusCode: 404, message: 'Purchase not found' };
@@ -14,16 +14,16 @@ async function findPaymentTarget(connection, vendorId, purchaseId) {
 
   const [purchaseRows] = await connection.execute(
     `SELECT id, grand_total, payment_paid, remaining_balance FROM purchases
-     WHERE vendor_id = ? AND remaining_balance > 0
+     WHERE vendor_id = ? AND remaining_balance > 0 AND company_id = ?
      ORDER BY created_at ASC
      LIMIT 1`,
-    [vendorId]
+    [vendorId, companyId]
   );
   return purchaseRows[0] || null;
 }
 
-async function applyPaymentToPurchase(connection, vendorId, amount, purchaseId) {
-  const purchase = await findPaymentTarget(connection, vendorId, purchaseId);
+async function applyPaymentToPurchase(connection, companyId, vendorId, amount, purchaseId) {
+  const purchase = await findPaymentTarget(connection, companyId, vendorId, purchaseId);
   if (!purchase) {
     return { targetPurchaseId: null };
   }
@@ -36,8 +36,8 @@ async function applyPaymentToPurchase(connection, vendorId, amount, purchaseId) 
   const updatedPaid = Number(purchase.payment_paid || 0) + amount;
   const updatedRemaining = Math.max(0, Number(purchase.grand_total || 0) - updatedPaid);
   await connection.execute(
-    'UPDATE purchases SET payment_paid = ?, remaining_balance = ?, updated_at = NOW() WHERE id = ?',
-    [updatedPaid, updatedRemaining, purchase.id]
+    'UPDATE purchases SET payment_paid = ?, remaining_balance = ?, updated_at = NOW() WHERE id = ? AND company_id = ?',
+    [updatedPaid, updatedRemaining, purchase.id, companyId]
   );
 
   return { targetPurchaseId: purchase.id };
@@ -46,6 +46,7 @@ async function applyPaymentToPurchase(connection, vendorId, amount, purchaseId) 
 async function addVendorPayment(req, res, next) {
   const connection = await pool.getConnection();
   try {
+    const companyId = req.user.company_id;
     const { vendor_id, amount, payment_method, notes, purchase_id } = req.body;
     const paymentAmount = Number(amount || 0);
     if (paymentAmount <= 0) {
@@ -53,27 +54,27 @@ async function addVendorPayment(req, res, next) {
     }
 
     await connection.beginTransaction();
-    const [vendorRows] = await connection.execute('SELECT current_balance FROM vendors WHERE id = ?', [vendor_id]);
+    const [vendorRows] = await connection.execute('SELECT current_balance FROM vendors WHERE id = ? AND company_id = ?', [vendor_id, companyId]);
     if (!vendorRows.length) {
       throw { statusCode: 404, message: 'Vendor not found' };
     }
 
     const previousBalance = Number(vendorRows[0].current_balance || 0);
     const newBalance = Math.max(0, previousBalance - paymentAmount);
-    const { targetPurchaseId } = await applyPaymentToPurchase(connection, vendor_id, paymentAmount, purchase_id);
+    const { targetPurchaseId } = await applyPaymentToPurchase(connection, companyId, vendor_id, paymentAmount, purchase_id);
 
     const [paymentResult] = await connection.execute(
-      `INSERT INTO vendor_payments (vendor_id, user_id, purchase_id, amount, payment_method, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-      [vendor_id, req.user.id, targetPurchaseId || null, paymentAmount, payment_method || 'cash', notes || null]
+      `INSERT INTO vendor_payments (company_id, vendor_id, user_id, purchase_id, amount, payment_method, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [companyId, vendor_id, req.user.id, targetPurchaseId || null, paymentAmount, payment_method || 'cash', notes || null]
     );
 
     await connection.execute('UPDATE vendors SET current_balance = ? WHERE id = ?', [newBalance, vendor_id]);
     await connection.execute(
       `INSERT INTO vendor_ledger_entries
-       (vendor_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-       VALUES (?, ?, 'payment', ?, ?, ?, ?, NOW())`,
-      [vendor_id, paymentResult.insertId, paymentAmount, previousBalance, newBalance, notes || 'Vendor payment paid']
+       (company_id, vendor_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+       VALUES (?, ?, ?, 'payment', ?, ?, ?, ?, NOW())`,
+      [companyId, vendor_id, paymentResult.insertId, paymentAmount, previousBalance, newBalance, notes || 'Vendor payment paid']
     );
 
     await connection.commit();
@@ -96,7 +97,8 @@ async function listVendorPayments(req, res, next) {
        FROM vendor_payments vp
        LEFT JOIN vendors v ON v.id = vp.vendor_id
        LEFT JOIN purchases p ON p.id = vp.purchase_id
-       WHERE 1=1`;
+       WHERE vp.company_id = ?`;
+    params.push(req.user.company_id);
 
     if (vendor_id) {
       query += ' AND vp.vendor_id = ?';

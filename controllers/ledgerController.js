@@ -3,7 +3,7 @@ const pool = require('../config/db');
 async function getLedgerForCustomer(req, res, next) {
   try {
     const { customer_id } = req.params;
-    const [customerRows] = await pool.query('SELECT id, full_name, shop_name, current_balance, username FROM customers WHERE id = ?', [customer_id]);
+    const [customerRows] = await pool.query('SELECT id, full_name, shop_name, current_balance, username FROM customers WHERE id = ? AND company_id = ?', [customer_id, req.user.company_id]);
     if (!customerRows.length) {
       return res.status(404).json({ success: false, message: 'Customer not found' });
     }
@@ -18,9 +18,9 @@ async function getLedgerForCustomer(req, res, next) {
        FROM ledger_entries le
        LEFT JOIN sales s ON s.id = le.sale_id
        LEFT JOIN payments p ON p.id = le.payment_id
-       WHERE le.customer_id = ?
+       WHERE le.customer_id = ? AND le.company_id = ?
        ORDER BY le.created_at DESC`,
-      [customer_id]
+      [customer_id, req.user.company_id]
     );
 
     res.json({ success: true, data: { customer: customerRows[0], ledger } });

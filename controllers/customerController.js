@@ -3,8 +3,9 @@ const pool = require('../config/db');
 
 async function createCustomer(req, res, next) {
   try {
+    const companyId = req.user.company_id;
     const { full_name, phone, shop_name, address, cnic, credit_limit, username, password } = req.body;
-    const [exists] = await pool.query('SELECT id FROM customers WHERE username = ? OR phone = ?', [username, phone]);
+    const [exists] = await pool.query('SELECT id FROM customers WHERE username = ? OR (company_id = ? AND phone = ?)', [username, companyId, phone]);
     if (exists.length) {
       return res.status(409).json({ success: false, message: 'Customer username or phone already exists' });
     }
@@ -12,9 +13,9 @@ async function createCustomer(req, res, next) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const [result] = await pool.query(
       `INSERT INTO customers
-      (full_name, phone, shop_name, address, cnic, customer_type, credit_limit, current_balance, username, password, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'star', ?, 0, ?, ?, NOW(), NOW())`,
-      [full_name, phone, shop_name, address, cnic || null, credit_limit || 0, username, hashedPassword]
+      (company_id, full_name, phone, shop_name, address, cnic, customer_type, credit_limit, current_balance, username, password, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'star', ?, 0, ?, ?, NOW(), NOW())`,
+      [companyId, full_name, phone, shop_name, address, cnic || null, credit_limit || 0, username, hashedPassword]
     );
 
     res.status(201).json({ success: true, data: { id: result.insertId, full_name, phone, shop_name, address, cnic, customer_type: 'star', credit_limit: credit_limit || 0, current_balance: 0, username } });
@@ -25,9 +26,10 @@ async function createCustomer(req, res, next) {
 
 async function listCustomers(req, res, next) {
   try {
+    const companyId = req.user.company_id;
     const [rows] = await pool.query(
-      "SELECT id, full_name, phone, shop_name, address, cnic, customer_type, credit_limit, current_balance, username, created_at FROM customers WHERE username != ? ORDER BY created_at DESC",
-      ['walkin_customer']
+      "SELECT id, full_name, phone, shop_name, address, cnic, customer_type, credit_limit, current_balance, username, created_at FROM customers WHERE company_id = ? AND customer_type = 'star' ORDER BY created_at DESC",
+      [companyId]
     );
     res.json({ success: true, data: rows });
   } catch (error) {
@@ -38,8 +40,8 @@ async function listCustomers(req, res, next) {
 async function getCustomer(req, res, next) {
   try {
     const { id } = req.params;
-    let query = 'SELECT id, full_name, phone, shop_name, address, cnic, credit_limit, current_balance, username, customer_type FROM customers WHERE id = ?';
-    const params = [id];
+    let query = 'SELECT id, full_name, phone, shop_name, address, cnic, credit_limit, current_balance, username, customer_type FROM customers WHERE id = ? AND company_id = ?';
+    const params = [id, req.user.company_id];
 
     if (req.user.role === 'customer') {
       query += ' AND id = ?';
@@ -60,14 +62,14 @@ async function updateCustomer(req, res, next) {
   try {
     const { id } = req.params;
     const { full_name, phone, shop_name, address, cnic, credit_limit } = req.body;
-    const [rows] = await pool.query('SELECT id FROM customers WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT id FROM customers WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Customer not found' });
     }
 
     await pool.query(
-      'UPDATE customers SET full_name = ?, phone = ?, shop_name = ?, address = ?, cnic = ?, credit_limit = ?, updated_at = NOW() WHERE id = ?',
-      [full_name, phone, shop_name, address, cnic || null, credit_limit || 0, id]
+      'UPDATE customers SET full_name = ?, phone = ?, shop_name = ?, address = ?, cnic = ?, credit_limit = ?, updated_at = NOW() WHERE id = ? AND company_id = ?',
+      [full_name, phone, shop_name, address, cnic || null, credit_limit || 0, id, req.user.company_id]
     );
 
     res.json({ success: true, message: 'Customer updated successfully' });
@@ -79,20 +81,20 @@ async function updateCustomer(req, res, next) {
 async function deleteCustomer(req, res, next) {
   try {
     const { id } = req.params;
-    const [rows] = await pool.query('SELECT id, current_balance FROM customers WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT id, current_balance FROM customers WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Customer not found' });
     }
 
     const [transactionRows] = await pool.query(
       `SELECT
-        (SELECT COUNT(*) FROM sales WHERE customer_id = ?) AS sales_count,
-        (SELECT COUNT(*) FROM invoices WHERE customer_id = ?) AS invoices_count,
-        (SELECT COUNT(*) FROM payments WHERE customer_id = ?) AS payments_count,
-        (SELECT COUNT(*) FROM ledger_entries WHERE customer_id = ?) AS ledger_count,
-        (SELECT COUNT(*) FROM sales WHERE customer_id = ? AND remaining_balance > 0) AS unpaid_sales_count,
-        (SELECT COUNT(*) FROM invoices WHERE customer_id = ? AND remaining_balance > 0) AS unpaid_invoices_count`,
-      [id, id, id, id, id, id]
+        (SELECT COUNT(*) FROM sales WHERE customer_id = ? AND company_id = ?) AS sales_count,
+        (SELECT COUNT(*) FROM invoices WHERE customer_id = ? AND company_id = ?) AS invoices_count,
+        (SELECT COUNT(*) FROM payments WHERE customer_id = ? AND company_id = ?) AS payments_count,
+        (SELECT COUNT(*) FROM ledger_entries WHERE customer_id = ? AND company_id = ?) AS ledger_count,
+        (SELECT COUNT(*) FROM sales WHERE customer_id = ? AND company_id = ? AND remaining_balance > 0) AS unpaid_sales_count,
+        (SELECT COUNT(*) FROM invoices WHERE customer_id = ? AND company_id = ? AND remaining_balance > 0) AS unpaid_invoices_count`,
+      [id, req.user.company_id, id, req.user.company_id, id, req.user.company_id, id, req.user.company_id, id, req.user.company_id, id, req.user.company_id]
     );
 
     const transactionSummary = transactionRows[0] || {};
@@ -115,7 +117,7 @@ async function deleteCustomer(req, res, next) {
       return res.status(400).json({ success: false, message: 'Customer has transaction history and cannot be deleted.' });
     }
 
-    await pool.query('DELETE FROM customers WHERE id = ?', [id]);
+    await pool.query('DELETE FROM customers WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     res.json({ success: true, message: 'Customer deleted successfully' });
   } catch (error) {
     next(error);

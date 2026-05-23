@@ -3,8 +3,9 @@ const pool = require('../config/db');
 
 async function createVendor(req, res, next) {
   try {
+    const companyId = req.user.company_id;
     const { full_name, phone, company_name, address, cnic, opening_balance, username, password } = req.body;
-    const [exists] = await pool.query('SELECT id FROM vendors WHERE username = ? OR phone = ?', [username, phone]);
+    const [exists] = await pool.query('SELECT id FROM vendors WHERE username = ? OR (company_id = ? AND phone = ?)', [username, companyId, phone]);
     if (exists.length) {
       return res.status(409).json({ success: false, message: 'Vendor username or phone already exists' });
     }
@@ -13,17 +14,17 @@ async function createVendor(req, res, next) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const [result] = await pool.query(
       `INSERT INTO vendors
-       (full_name, phone, company_name, address, cnic, opening_balance, current_balance, username, password, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [full_name, phone, company_name, address || null, cnic || null, balance, balance, username, hashedPassword]
+       (company_id, full_name, phone, company_name, address, cnic, opening_balance, current_balance, username, password, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      [companyId, full_name, phone, company_name, address || null, cnic || null, balance, balance, username, hashedPassword]
     );
 
     if (balance > 0) {
       await pool.query(
         `INSERT INTO vendor_ledger_entries
-         (vendor_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-         VALUES (?, 'adjustment', ?, 0, ?, 'Opening balance', NOW())`,
-        [result.insertId, balance, balance]
+         (company_id, vendor_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+         VALUES (?, ?, 'adjustment', ?, 0, ?, 'Opening balance', NOW())`,
+        [companyId, result.insertId, balance, balance]
       );
     }
 
@@ -39,7 +40,8 @@ async function createVendor(req, res, next) {
 async function listVendors(req, res, next) {
   try {
     const [rows] = await pool.query(
-      'SELECT id, full_name, phone, company_name, address, cnic, opening_balance, current_balance, username, created_at FROM vendors ORDER BY created_at DESC'
+      'SELECT id, full_name, phone, company_name, address, cnic, opening_balance, current_balance, username, created_at FROM vendors WHERE company_id = ? ORDER BY created_at DESC',
+      [req.user.company_id]
     );
     res.json({ success: true, data: rows });
   } catch (error) {
@@ -50,8 +52,8 @@ async function listVendors(req, res, next) {
 async function getVendor(req, res, next) {
   try {
     const { id } = req.params;
-    let query = 'SELECT id, full_name, phone, company_name, address, cnic, opening_balance, current_balance, username FROM vendors WHERE id = ?';
-    const params = [id];
+    let query = 'SELECT id, full_name, phone, company_name, address, cnic, opening_balance, current_balance, username FROM vendors WHERE id = ? AND company_id = ?';
+    const params = [id, req.user.company_id];
 
     if (req.user.role === 'vendor') {
       query += ' AND id = ?';
@@ -72,14 +74,14 @@ async function updateVendor(req, res, next) {
   try {
     const { id } = req.params;
     const { full_name, phone, company_name, address, cnic } = req.body;
-    const [rows] = await pool.query('SELECT id FROM vendors WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT id FROM vendors WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Vendor not found' });
     }
 
     await pool.query(
-      'UPDATE vendors SET full_name = ?, phone = ?, company_name = ?, address = ?, cnic = ?, updated_at = NOW() WHERE id = ?',
-      [full_name, phone, company_name, address || null, cnic || null, id]
+      'UPDATE vendors SET full_name = ?, phone = ?, company_name = ?, address = ?, cnic = ?, updated_at = NOW() WHERE id = ? AND company_id = ?',
+      [full_name, phone, company_name, address || null, cnic || null, id, req.user.company_id]
     );
 
     res.json({ success: true, message: 'Vendor updated successfully' });
@@ -91,18 +93,18 @@ async function updateVendor(req, res, next) {
 async function deleteVendor(req, res, next) {
   try {
     const { id } = req.params;
-    const [rows] = await pool.query('SELECT id, current_balance FROM vendors WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT id, current_balance FROM vendors WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Vendor not found' });
     }
 
     const [transactionRows] = await pool.query(
       `SELECT
-        (SELECT COUNT(*) FROM purchases WHERE vendor_id = ?) AS purchases_count,
-        (SELECT COUNT(*) FROM vendor_payments WHERE vendor_id = ?) AS payments_count,
-        (SELECT COUNT(*) FROM vendor_ledger_entries WHERE vendor_id = ?) AS ledger_count,
-        (SELECT COUNT(*) FROM purchases WHERE vendor_id = ? AND remaining_balance > 0) AS unpaid_purchases_count`,
-      [id, id, id, id]
+        (SELECT COUNT(*) FROM purchases WHERE vendor_id = ? AND company_id = ?) AS purchases_count,
+        (SELECT COUNT(*) FROM vendor_payments WHERE vendor_id = ? AND company_id = ?) AS payments_count,
+        (SELECT COUNT(*) FROM vendor_ledger_entries WHERE vendor_id = ? AND company_id = ?) AS ledger_count,
+        (SELECT COUNT(*) FROM purchases WHERE vendor_id = ? AND company_id = ? AND remaining_balance > 0) AS unpaid_purchases_count`,
+      [id, req.user.company_id, id, req.user.company_id, id, req.user.company_id, id, req.user.company_id]
     );
 
     const summary = transactionRows[0] || {};
@@ -114,7 +116,7 @@ async function deleteVendor(req, res, next) {
       return res.status(400).json({ success: false, message: 'Vendor has transaction history and cannot be deleted.' });
     }
 
-    await pool.query('DELETE FROM vendors WHERE id = ?', [id]);
+    await pool.query('DELETE FROM vendors WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     res.json({ success: true, message: 'Vendor deleted successfully' });
   } catch (error) {
     next(error);

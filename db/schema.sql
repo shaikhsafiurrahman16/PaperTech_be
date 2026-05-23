@@ -225,6 +225,19 @@ CREATE TABLE IF NOT EXISTS stock_history (
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  sender_role ENUM('admin','customer','vendor') NOT NULL,
+  sender_id INT NOT NULL,
+  receiver_role ENUM('admin','customer','vendor') NOT NULL,
+  receiver_id INT NOT NULL,
+  message TEXT NOT NULL,
+  is_read TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_chat_participants (sender_role, sender_id, receiver_role, receiver_id),
+  INDEX idx_chat_created_at (created_at)
+);
+
 -- Product attribute migration for existing databases.
 SET @products_schema_name = DATABASE();
 

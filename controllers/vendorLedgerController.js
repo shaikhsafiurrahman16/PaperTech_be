@@ -4,8 +4,8 @@ async function getLedgerForVendor(req, res, next) {
   try {
     const { vendor_id } = req.params;
     const [vendorRows] = await pool.query(
-      'SELECT id, full_name, company_name, current_balance, username FROM vendors WHERE id = ?',
-      [vendor_id]
+      'SELECT id, full_name, company_name, current_balance, username FROM vendors WHERE id = ? AND company_id = ?',
+      [vendor_id, req.user.company_id]
     );
     if (!vendorRows.length) {
       return res.status(404).json({ success: false, message: 'Vendor not found' });
@@ -21,9 +21,9 @@ async function getLedgerForVendor(req, res, next) {
        FROM vendor_ledger_entries vle
        LEFT JOIN purchases p ON p.id = vle.purchase_id
        LEFT JOIN vendor_payments vp ON vp.id = vle.payment_id
-       WHERE vle.vendor_id = ?
+       WHERE vle.vendor_id = ? AND vle.company_id = ?
        ORDER BY vle.created_at DESC`,
-      [vendor_id]
+      [vendor_id, req.user.company_id]
     );
 
     res.json({ success: true, data: { vendor: vendorRows[0], ledger } });

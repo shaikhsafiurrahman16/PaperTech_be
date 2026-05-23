@@ -23,21 +23,19 @@ app.use(errorHandler);
 
 async function ensureDefaultAdmin() {
   try {
-    const [rows] = await pool.query('SELECT id FROM users WHERE role = ?', ['admin']);
+    const [rows] = await pool.query('SELECT id FROM users WHERE role = ?', ['super_admin']);
     if (rows.length === 0) {
-      const defaultUsername = process.env.DEFAULT_ADMIN_USERNAME || 'admin';
-      const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'Admin@123';
+      const defaultUsername = process.env.DEFAULT_SUPER_ADMIN_USERNAME || 'super';
+      const defaultPassword = process.env.DEFAULT_SUPER_ADMIN_PASSWORD || 'Safi123.';
       const hashedPassword = await bcrypt.hash(defaultPassword, 10);
 
       await pool.query(
-        'INSERT INTO users (full_name, username, password, role, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())',
-        ['Admin User', defaultUsername, hashedPassword, 'admin']
+        'INSERT INTO users (full_name, username, password, role, company_id, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NOW(), NOW())',
+        ['Super Admin', defaultUsername, hashedPassword, 'super_admin']
       );
-
-      console.log(`Created default admin account: ${defaultUsername} / ${defaultPassword}`);
     }
   } catch (error) {
-    console.error('Error ensuring default admin user:', error);
+    console.error('Error ensuring default super admin user:', error);
   }
 }
 

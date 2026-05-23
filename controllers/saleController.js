@@ -4,6 +4,7 @@ const { updateProductStock } = require('../utils/inventoryService');
 async function createSale(req, res, next) {
   const connection = await pool.getConnection();
   try {
+    const companyId = req.user.company_id;
     let { customer_id, items, discount = 0, payment_received = 0, sale_type = 'cash' } = req.body;
     discount = Number(discount) || 0;
     payment_received = Number(payment_received) || 0;
@@ -22,24 +23,25 @@ async function createSale(req, res, next) {
     if (!customerId) {
       sale_type = 'cash';
       const [walkinRows] = await connection.execute(
-        'SELECT id FROM customers WHERE username = ?',
-        ['walkin_customer']
+        "SELECT id FROM customers WHERE company_id = ? AND customer_type = 'local' AND shop_name = 'Walk-in Customer' ORDER BY id ASC LIMIT 1",
+        [companyId]
       );
       if (walkinRows.length) {
         customerId = walkinRows[0].id;
       } else {
+        const walkinUsername = `walkin_customer_${companyId}`;
         const [createWalkin] = await connection.execute(
-          `INSERT INTO customers (full_name, phone, shop_name, address, cnic, credit_limit, current_balance, username, password, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-          ['Walk-in Customer', '0000000000', 'Walk-in Customer', 'Walk-in customer', null, 0, 0, 'walkin_customer', '']
+          `INSERT INTO customers (company_id, full_name, phone, shop_name, address, cnic, credit_limit, current_balance, username, password, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+          [companyId, 'Walk-in Customer', '0000000000', 'Walk-in Customer', 'Walk-in customer', null, 0, 0, walkinUsername, '']
         );
         customerId = createWalkin.insertId;
       }
     }
 
     const [customerRows] = await connection.execute(
-      'SELECT id, current_balance, username FROM customers WHERE id = ?',
-      [customerId]
+      'SELECT id, current_balance, username FROM customers WHERE id = ? AND company_id = ?',
+      [customerId, companyId]
     );
     if (!customerRows.length) {
       throw { statusCode: 404, message: 'Customer not found' };
@@ -72,32 +74,32 @@ async function createSale(req, res, next) {
     const remainingBalance = sale_type === 'cash' ? 0 : Math.max(0, grandTotal - paymentReceived);
 
     const [saleResult] = await connection.execute(
-      `INSERT INTO sales (invoice_number, customer_id, user_id, total_amount, discount, grand_total, payment_received, remaining_balance, sale_type, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [invoiceNumber, customerId, req.user.id, totalAmount, discount, grandTotal, paymentReceived, remainingBalance, sale_type]
+      `INSERT INTO sales (company_id, invoice_number, customer_id, user_id, total_amount, discount, grand_total, payment_received, remaining_balance, sale_type, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      [companyId, invoiceNumber, customerId, req.user.id, totalAmount, discount, grandTotal, paymentReceived, remainingBalance, sale_type]
     );
 
     const saleId = saleResult.insertId;
     const [invoiceResult] = await connection.execute(
-      `INSERT INTO invoices (sale_id, invoice_number, customer_id, user_id, total_amount, discount, grand_total, payment_received, remaining_balance, sale_type, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [saleId, invoiceNumber, customerId, req.user.id, totalAmount, discount, grandTotal, paymentReceived, remainingBalance, sale_type]
+      `INSERT INTO invoices (company_id, sale_id, invoice_number, customer_id, user_id, total_amount, discount, grand_total, payment_received, remaining_balance, sale_type, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      [companyId, saleId, invoiceNumber, customerId, req.user.id, totalAmount, discount, grandTotal, paymentReceived, remainingBalance, sale_type]
     );
 
     const invoiceId = invoiceResult.insertId;
     for (const item of validatedItems) {
       const subtotal = item.quantity * item.unit_price;
       await connection.execute(
-        `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal, created_at)
-         VALUES (?, ?, ?, ?, ?, NOW())`,
-        [saleId, item.product_id, item.quantity, item.unit_price, subtotal]
+        `INSERT INTO sale_items (company_id, sale_id, product_id, quantity, unit_price, subtotal, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+        [companyId, saleId, item.product_id, item.quantity, item.unit_price, subtotal]
       );
       await connection.execute(
         `INSERT INTO invoice_items (invoice_id, product_id, quantity, unit_price, subtotal, created_at)
          VALUES (?, ?, ?, ?, ?, NOW())`,
         [invoiceId, item.product_id, item.quantity, item.unit_price, subtotal]
       );
-      await updateProductStock(connection, item.product_id, item.quantity, 'sale', saleId, `Sale ${invoiceNumber}`);
+      await updateProductStock(connection, companyId, item.product_id, item.quantity, 'sale', saleId, `Sale ${invoiceNumber}`);
     }
 
     const previousBalance = Number(customerRows[0].current_balance || 0);
@@ -107,24 +109,24 @@ async function createSale(req, res, next) {
       currentBalance += remainingBalance;
       await connection.execute('UPDATE customers SET current_balance = ? WHERE id = ?', [currentBalance, customerId]);
       await connection.execute(
-        `INSERT INTO ledger_entries (customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NOW())`,
-        [customerId, saleId, 'sale', grandTotal, previousBalance, currentBalance, `Sale ${invoiceNumber}`]
+        `INSERT INTO ledger_entries (company_id, customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+         VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, NOW())`,
+        [companyId, customerId, saleId, 'sale', grandTotal, previousBalance, currentBalance, `Sale ${invoiceNumber}`]
       );
     }
 
     if (paymentReceived > 0) {
       const [paymentResult] = await connection.execute(
-        `INSERT INTO payments (customer_id, user_id, sale_id, amount, payment_method, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-        [customerId, req.user.id, saleId, paymentReceived, 'cash', 'Sale payment']
+        `INSERT INTO payments (company_id, customer_id, user_id, sale_id, amount, payment_method, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [companyId, customerId, req.user.id, saleId, paymentReceived, 'cash', 'Sale payment']
       );
 
       const paymentId = paymentResult.insertId;
       await connection.execute(
-        `INSERT INTO ledger_entries (customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [customerId, saleId, paymentId, 'payment', paymentReceived, currentBalance, currentBalance, `Payment for ${invoiceNumber}`]
+        `INSERT INTO ledger_entries (company_id, customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [companyId, customerId, saleId, paymentId, 'payment', paymentReceived, currentBalance, currentBalance, `Payment for ${invoiceNumber}`]
       );
     }
 
@@ -146,7 +148,8 @@ async function listSales(req, res, next) {
     let query = `SELECT s.id, s.invoice_number, c.shop_name, c.full_name, s.total_amount, s.discount, s.grand_total, s.payment_received, s.remaining_balance, s.sale_type, s.created_at, s.customer_id
        FROM sales s
        LEFT JOIN customers c ON c.id = s.customer_id
-       WHERE 1=1`;
+       WHERE s.company_id = ?`;
+    params.push(req.user.company_id);
 
     if (req.user && req.user.role === 'customer') {
       query += ` AND s.customer_id = ?`;
@@ -194,8 +197,8 @@ async function getSaleDetails(req, res, next) {
       `SELECT s.*, c.full_name, c.shop_name, c.phone, c.username
        FROM sales s
        LEFT JOIN customers c ON c.id = s.customer_id
-       WHERE s.id = ?`,
-      [id]
+       WHERE s.id = ? AND s.company_id = ?`,
+      [id, req.user.company_id]
     );
     if (!saleRows.length) {
       return res.status(404).json({ success: false, message: 'Sale not found' });
@@ -208,8 +211,8 @@ async function getSaleDetails(req, res, next) {
       `SELECT si.*, p.name as product_name
        FROM sale_items si
        LEFT JOIN products p ON p.id = si.product_id
-       WHERE si.sale_id = ?`,
-      [id]
+       WHERE si.sale_id = ? AND si.company_id = ?`,
+      [id, req.user.company_id]
     );
 
     res.json({ success: true, data: { sale: saleRows[0], items } });
@@ -226,13 +229,13 @@ async function updateSale(req, res, next) {
     const discountValue = Number(discount) || 0;
     const paymentValue = Number(payment_received) || 0;
 
-    const [saleRows] = await connection.execute('SELECT * FROM sales WHERE id = ?', [id]);
+    const [saleRows] = await connection.execute('SELECT * FROM sales WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!saleRows.length) {
       return res.status(404).json({ success: false, message: 'Sale not found' });
     }
 
     const sale = saleRows[0];
-    const [customerRows] = await connection.execute('SELECT id, current_balance, username FROM customers WHERE id = ?', [sale.customer_id]);
+    const [customerRows] = await connection.execute('SELECT id, current_balance, username FROM customers WHERE id = ? AND company_id = ?', [sale.customer_id, req.user.company_id]);
     if (!customerRows.length) {
       return res.status(404).json({ success: false, message: 'Customer not found' });
     }
@@ -259,34 +262,34 @@ async function updateSale(req, res, next) {
 
     await connection.beginTransaction();
     await connection.execute(
-      `UPDATE sales SET discount = ?, grand_total = ?, payment_received = ?, remaining_balance = ?, sale_type = ?, updated_at = NOW() WHERE id = ?`,
-      [discountValue, newGrandTotal, newPayment, newRemaining, adjustedSaleType, id]
+      `UPDATE sales SET discount = ?, grand_total = ?, payment_received = ?, remaining_balance = ?, sale_type = ?, updated_at = NOW() WHERE id = ? AND company_id = ?`,
+      [discountValue, newGrandTotal, newPayment, newRemaining, adjustedSaleType, id, req.user.company_id]
     );
 
     await connection.execute(
-      `UPDATE invoices SET total_amount = ?, discount = ?, grand_total = ?, payment_received = ?, remaining_balance = ?, sale_type = ?, updated_at = NOW() WHERE sale_id = ?`,
-      [totalAmount, discountValue, newGrandTotal, newPayment, newRemaining, adjustedSaleType, id]
+      `UPDATE invoices SET total_amount = ?, discount = ?, grand_total = ?, payment_received = ?, remaining_balance = ?, sale_type = ?, updated_at = NOW() WHERE sale_id = ? AND company_id = ?`,
+      [totalAmount, discountValue, newGrandTotal, newPayment, newRemaining, adjustedSaleType, id, req.user.company_id]
     );
 
     if (remainingDelta !== 0) {
       await connection.execute(
-        `INSERT INTO ledger_entries (customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NOW())`,
-        [customer.id, id, 'sale', remainingDelta, Number(customer.current_balance || 0), currentBalance, `Sale update ${sale.invoice_number}`]
+        `INSERT INTO ledger_entries (company_id, customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+         VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, NOW())`,
+        [req.user.company_id, customer.id, id, 'sale', remainingDelta, Number(customer.current_balance || 0), currentBalance, `Sale update ${sale.invoice_number}`]
       );
     }
 
     if (paymentDelta > 0) {
       const [paymentResult] = await connection.execute(
-        `INSERT INTO payments (customer_id, user_id, sale_id, amount, payment_method, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-        [customer.id, sale.user_id, id, paymentDelta, 'cash', 'Additional sale payment']
+        `INSERT INTO payments (company_id, customer_id, user_id, sale_id, amount, payment_method, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [req.user.company_id, customer.id, sale.user_id, id, paymentDelta, 'cash', 'Additional sale payment']
       );
       const paymentId = paymentResult.insertId;
       await connection.execute(
-        `INSERT INTO ledger_entries (customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [customer.id, id, paymentId, 'payment', paymentDelta, currentBalance, currentBalance, `Additional payment for ${sale.invoice_number}`]
+        `INSERT INTO ledger_entries (company_id, customer_id, sale_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [req.user.company_id, customer.id, id, paymentId, 'payment', paymentDelta, currentBalance, currentBalance, `Additional payment for ${sale.invoice_number}`]
       );
     }
 
@@ -305,18 +308,18 @@ async function deleteSale(req, res, next) {
   const connection = await pool.getConnection();
   try {
     const { id } = req.params;
-    const [saleRows] = await connection.execute('SELECT * FROM sales WHERE id = ?', [id]);
+    const [saleRows] = await connection.execute('SELECT * FROM sales WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!saleRows.length) {
       return res.status(404).json({ success: false, message: 'Sale not found' });
     }
 
     const sale = saleRows[0];
-    const [paymentRows] = await connection.execute('SELECT id FROM payments WHERE sale_id = ?', [id]);
+    const [paymentRows] = await connection.execute('SELECT id FROM payments WHERE sale_id = ? AND company_id = ?', [id, req.user.company_id]);
     if (paymentRows.length > 0) {
       return res.status(400).json({ success: false, message: 'Cannot delete sale with existing payments' });
     }
 
-    const [customerRows] = await connection.execute('SELECT id, current_balance FROM customers WHERE id = ?', [sale.customer_id]);
+    const [customerRows] = await connection.execute('SELECT id, current_balance FROM customers WHERE id = ? AND company_id = ?', [sale.customer_id, req.user.company_id]);
     if (!customerRows.length) {
       throw { statusCode: 404, message: 'Customer not found' };
     }
@@ -325,8 +328,8 @@ async function deleteSale(req, res, next) {
     let currentBalance = Number(customerRows[0].current_balance || 0) - Number(sale.remaining_balance || 0);
     currentBalance = Math.max(0, currentBalance);
     await connection.execute('UPDATE customers SET current_balance = ? WHERE id = ?', [currentBalance, sale.customer_id]);
-    await connection.execute('DELETE FROM sales WHERE id = ?', [id]);
-    await connection.execute('UPDATE ledger_entries SET remarks = CONCAT(remarks, \' [deleted]\') WHERE sale_id = ?', [id]);
+    await connection.execute('DELETE FROM sales WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
+    await connection.execute('UPDATE ledger_entries SET remarks = CONCAT(remarks, \' [deleted]\') WHERE sale_id = ? AND company_id = ?', [id, req.user.company_id]);
     await connection.commit();
 
     res.json({ success: true, message: 'Sale deleted successfully' });

@@ -6,18 +6,19 @@ function getSheetsPerPack(unitType) {
 
 async function addProduct(req, res, next) {
   try {
+    const companyId = req.user.company_id;
     const { name, product_type, size, gram, unit_type, cost_price, sale_price, current_stock, min_stock_alert, description } = req.body;
     const sheetsPerPack = getSheetsPerPack(unit_type);
-    const [exists] = await pool.query('SELECT id FROM products WHERE name = ?', [name]);
+    const [exists] = await pool.query('SELECT id FROM products WHERE company_id = ? AND name = ?', [companyId, name]);
     if (exists.length) {
       return res.status(409).json({ success: false, message: 'Product already exists' });
     }
 
     const [result] = await pool.query(
       `INSERT INTO products
-      (name, product_type, size, gram, unit_type, sheets_per_pack, cost_price, sale_price, current_stock, min_stock_alert, description, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [name, product_type, size, Number(gram) || 0, unit_type, sheetsPerPack, cost_price, sale_price, Number(current_stock || 0), Number(min_stock_alert || 0), description || null]
+      (company_id, name, product_type, size, gram, unit_type, sheets_per_pack, cost_price, sale_price, current_stock, min_stock_alert, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      [companyId, name, product_type, size, Number(gram) || 0, unit_type, sheetsPerPack, cost_price, sale_price, Number(current_stock || 0), Number(min_stock_alert || 0), description || null]
     );
 
     res.status(201).json({ success: true, data: { id: result.insertId, name, product_type, size, gram: Number(gram) || 0, unit_type, sheets_per_pack: sheetsPerPack, cost_price, sale_price, current_stock, min_stock_alert, description } });
@@ -28,7 +29,7 @@ async function addProduct(req, res, next) {
 
 async function listProducts(req, res, next) {
   try {
-    const [rows] = await pool.query('SELECT * FROM products ORDER BY created_at DESC');
+    const [rows] = await pool.query('SELECT * FROM products WHERE company_id = ? ORDER BY created_at DESC', [req.user.company_id]);
     res.json({ success: true, data: rows });
   } catch (error) {
     next(error);
@@ -38,7 +39,7 @@ async function listProducts(req, res, next) {
 async function getProduct(req, res, next) {
   try {
     const { id } = req.params;
-    const [rows] = await pool.query('SELECT * FROM products WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT * FROM products WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
@@ -53,7 +54,7 @@ async function updateProduct(req, res, next) {
     const { id } = req.params;
     const { name, product_type, size, gram, unit_type, cost_price, sale_price, current_stock, min_stock_alert, description } = req.body;
     const sheetsPerPack = getSheetsPerPack(unit_type);
-    const [rows] = await pool.query('SELECT id FROM products WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT id FROM products WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
@@ -61,8 +62,8 @@ async function updateProduct(req, res, next) {
     await pool.query(
       `UPDATE products SET
       name = ?, product_type = ?, size = ?, gram = ?, unit_type = ?, sheets_per_pack = ?, cost_price = ?, sale_price = ?, current_stock = ?, min_stock_alert = ?, description = ?, updated_at = NOW()
-      WHERE id = ?`,
-      [name, product_type, size, Number(gram) || 0, unit_type, sheetsPerPack, cost_price, sale_price, Number(current_stock || 0), Number(min_stock_alert || 0), description || null, id]
+      WHERE id = ? AND company_id = ?`,
+      [name, product_type, size, Number(gram) || 0, unit_type, sheetsPerPack, cost_price, sale_price, Number(current_stock || 0), Number(min_stock_alert || 0), description || null, id, req.user.company_id]
     );
 
     res.json({ success: true, message: 'Product updated successfully' });
@@ -74,11 +75,11 @@ async function updateProduct(req, res, next) {
 async function deleteProduct(req, res, next) {
   try {
     const { id } = req.params;
-    const [rows] = await pool.query('SELECT id FROM products WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT id FROM products WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
-    await pool.query('DELETE FROM products WHERE id = ?', [id]);
+    await pool.query('DELETE FROM products WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     res.json({ success: true, message: 'Product deleted successfully' });
   } catch (error) {
     next(error);
@@ -90,7 +91,7 @@ async function updateStock(req, res, next) {
     const { id } = req.params;
     const quantityChange = Number(req.body.quantity_change || 0);
     
-    const [rows] = await pool.query('SELECT id, current_stock FROM products WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT id, current_stock FROM products WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
@@ -101,15 +102,14 @@ async function updateStock(req, res, next) {
     }
 
     await pool.query(
-      'UPDATE products SET current_stock = ?, updated_at = NOW() WHERE id = ?',
-      [newStock, id]
+      'UPDATE products SET current_stock = ?, updated_at = NOW() WHERE id = ? AND company_id = ?',
+      [newStock, id, req.user.company_id]
     );
 
-    // Log stock change
     await pool.query(
-      `INSERT INTO stock_history (product_id, change_type, quantity, balance_after, reference_type, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-      [id, quantityChange > 0 ? 'addition' : 'deduction', Math.abs(quantityChange), newStock, 'manual', `Stock updated by admin`, new Date()]
+      `INSERT INTO stock_history (company_id, product_id, change_type, quantity, balance_after, reference_type, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [req.user.company_id, id, quantityChange > 0 ? 'addition' : 'deduction', Math.abs(quantityChange), newStock, 'manual', `Stock updated by admin`]
     );
 
     res.json({ success: true, message: 'Stock updated successfully', data: { id, new_stock: newStock } });

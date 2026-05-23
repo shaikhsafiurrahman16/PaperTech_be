@@ -2,17 +2,44 @@ const bcrypt = require('bcrypt');
 const pool = require('../config/db');
 const { generateToken } = require('../utils/jwt');
 
+async function isPasswordValid(plainText, storedPassword) {
+  if (!storedPassword) return false;
+  if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2y$')) {
+    return bcrypt.compare(plainText, storedPassword);
+  }
+  return plainText === storedPassword;
+}
+
 async function login(req, res, next) {
   try {
     const { username, password } = req.body;
+    const [superAdminRows] = await pool.query(
+      'SELECT id, full_name, username, password, role FROM users WHERE username = ? AND role = "super_admin"',
+      [username]
+    );
+    if (superAdminRows.length) {
+      const user = superAdminRows[0];
+      const isMatch = await isPasswordValid(password, user.password);
+      if (!isMatch) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+      const token = generateToken(user);
+      return res.json({
+        success: true,
+        data: { id: user.id, full_name: user.full_name, username: user.username, role: user.role, token, company_id: null, company_name: 'Global' },
+      });
+    }
 
     const [adminRows] = await pool.query(
-      'SELECT id, full_name, username, password, role FROM users WHERE username = ? AND role = "admin"',
+      `SELECT u.id, u.full_name, u.username, u.password, u.role, u.company_id, c.name AS company_name
+       FROM users u
+       INNER JOIN companies c ON c.id = u.company_id
+       WHERE u.username = ? AND u.role = "admin"`,
       [username]
     );
     if (adminRows.length) {
       const user = adminRows[0];
-      const isMatch = await bcrypt.compare(password, user.password);
+      const isMatch = await isPasswordValid(password, user.password);
       if (!isMatch) {
         return res.status(401).json({ success: false, message: 'Invalid credentials' });
       }
@@ -20,43 +47,49 @@ async function login(req, res, next) {
       const token = generateToken(user);
       return res.json({
         success: true,
-        data: { id: user.id, full_name: user.full_name, username: user.username, role: user.role, token },
+        data: { id: user.id, full_name: user.full_name, username: user.username, role: user.role, token, company_id: user.company_id, company_name: user.company_name },
       });
     }
 
     const [customerRows] = await pool.query(
-      'SELECT id, full_name, username, password FROM customers WHERE username = ? AND customer_type = "star"',
+      `SELECT cu.id, cu.full_name, cu.username, cu.password, cu.company_id, c.name AS company_name
+       FROM customers cu
+       INNER JOIN companies c ON c.id = cu.company_id
+       WHERE cu.username = ? AND cu.customer_type = "star"`,
       [username]
     );
     if (customerRows.length) {
       const customer = customerRows[0];
-      const isMatch = await bcrypt.compare(password, customer.password);
+      const isMatch = await isPasswordValid(password, customer.password);
       if (!isMatch) {
         return res.status(401).json({ success: false, message: 'Invalid credentials' });
       }
 
-      const token = generateToken({ id: customer.id, username: customer.username, role: 'customer' });
+      const token = generateToken({ id: customer.id, username: customer.username, role: 'customer', company_id: customer.company_id });
       return res.json({
         success: true,
-        data: { id: customer.id, full_name: customer.full_name, username: customer.username, role: 'customer', token },
+        data: { id: customer.id, full_name: customer.full_name, username: customer.username, role: 'customer', token, company_id: customer.company_id, company_name: customer.company_name },
       });
     }
 
     const [vendorRows] = await pool.query(
-      'SELECT id, full_name, username, password FROM vendors WHERE username = ?',
+      `SELECT v.id, v.full_name, v.username, v.password, v.company_id, c.name AS company_name
+       FROM vendors v
+       INNER JOIN companies c ON c.id = v.company_id
+       WHERE v.username = ?`,
       [username]
     );
     if (vendorRows.length) {
       const vendor = vendorRows[0];
-      const isMatch = await bcrypt.compare(password, vendor.password);
+      const isMatch = await isPasswordValid(password, vendor.password);
       if (!isMatch) {
         return res.status(401).json({ success: false, message: 'Invalid credentials' });
       }
 
-      const token = generateToken({ id: vendor.id, username: vendor.username, role: 'vendor' });
+      const token = generateToken({ id: vendor.id, username: vendor.username, role: 'vendor', company_id: vendor.company_id });
       return res.json({
         success: true,
-        data: { id: vendor.id, full_name: vendor.full_name, username: vendor.username, role: 'vendor', token },
+        data: { id: vendor.id, full_name: vendor.full_name, username: vendor.username, role: 'vendor', token, company_id: vendor.company_id, company_name: vendor.company_name },
       });
     }
 
@@ -68,19 +101,23 @@ async function login(req, res, next) {
 
 async function register(req, res, next) {
   try {
-    const { full_name, username, password, role } = req.body;
-    const [exists] = await pool.query('SELECT id FROM users WHERE username = ?', [username]);
+    const { full_name, username, password, role, company_id } = req.body;
+    const [exists] = await pool.query('SELECT id FROM users WHERE username = ? AND role IN ("admin", "super_admin")', [username]);
     if (exists.length) {
       return res.status(409).json({ success: false, message: 'Username already exists' });
     }
 
+    if (role !== 'super_admin' && !company_id) {
+      return res.status(400).json({ success: false, message: 'company_id is required' });
+    }
+
     const hashed = await bcrypt.hash(password, 10);
     const [result] = await pool.query(
-      'INSERT INTO users (full_name, username, password, role, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())',
-      [full_name, username, hashed, role || 'admin']
+      'INSERT INTO users (full_name, username, password, role, company_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
+      [full_name, username, hashed, role || 'admin', role === 'super_admin' ? null : company_id]
     );
 
-    res.status(201).json({ success: true, data: { id: result.insertId, full_name, username, role: role || 'admin' } });
+    res.status(201).json({ success: true, data: { id: result.insertId, full_name, username, role: role || 'admin', company_id: role === 'super_admin' ? null : company_id } });
   } catch (error) {
     next(error);
   }

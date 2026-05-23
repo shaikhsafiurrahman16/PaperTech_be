@@ -1,14 +1,14 @@
 const pool = require('../config/db');
 
-async function findPaymentTarget(connection, customerId, saleId, invoiceId) {
+async function findPaymentTarget(connection, companyId, customerId, saleId, invoiceId) {
   let relatedSale = null;
   let relatedInvoice = null;
   let targetSaleId = saleId || null;
 
   if (invoiceId) {
     const [invoiceRows] = await connection.execute(
-      'SELECT id, sale_id, grand_total, payment_received, remaining_balance FROM invoices WHERE id = ? AND customer_id = ?',
-      [invoiceId, customerId]
+      'SELECT id, sale_id, grand_total, payment_received, remaining_balance FROM invoices WHERE id = ? AND customer_id = ? AND company_id = ?',
+      [invoiceId, customerId, companyId]
     );
     if (!invoiceRows.length) {
       throw { statusCode: 404, message: 'Invoice not found' };
@@ -20,18 +20,18 @@ async function findPaymentTarget(connection, customerId, saleId, invoiceId) {
   if (!targetSaleId) {
     const [saleRows] = await connection.execute(
       `SELECT id FROM sales
-       WHERE customer_id = ? AND remaining_balance > 0
+       WHERE customer_id = ? AND remaining_balance > 0 AND company_id = ?
        ORDER BY created_at ASC
        LIMIT 1`,
-      [customerId]
+      [customerId, companyId]
     );
     targetSaleId = saleRows[0]?.id || null;
   }
 
   if (targetSaleId) {
     const [saleRows] = await connection.execute(
-      'SELECT id, invoice_number, grand_total, payment_received, remaining_balance FROM sales WHERE id = ? AND customer_id = ?',
-      [targetSaleId, customerId]
+      'SELECT id, invoice_number, grand_total, payment_received, remaining_balance FROM sales WHERE id = ? AND customer_id = ? AND company_id = ?',
+      [targetSaleId, customerId, companyId]
     );
     if (!saleRows.length) {
       throw { statusCode: 404, message: 'Sale not found' };
@@ -40,8 +40,8 @@ async function findPaymentTarget(connection, customerId, saleId, invoiceId) {
 
     if (!relatedInvoice) {
       const [invoiceRows] = await connection.execute(
-        'SELECT id, sale_id, grand_total, payment_received, remaining_balance FROM invoices WHERE sale_id = ? AND customer_id = ?',
-        [targetSaleId, customerId]
+        'SELECT id, sale_id, grand_total, payment_received, remaining_balance FROM invoices WHERE sale_id = ? AND customer_id = ? AND company_id = ?',
+        [targetSaleId, customerId, companyId]
       );
       relatedInvoice = invoiceRows[0] || null;
     }
@@ -50,9 +50,10 @@ async function findPaymentTarget(connection, customerId, saleId, invoiceId) {
   return { relatedSale, relatedInvoice, targetSaleId };
 }
 
-async function applyPaymentToInvoice(connection, customerId, amount, saleId, invoiceId) {
+async function applyPaymentToInvoice(connection, companyId, customerId, amount, saleId, invoiceId) {
   const { relatedSale, relatedInvoice, targetSaleId } = await findPaymentTarget(
     connection,
+    companyId,
     customerId,
     saleId,
     invoiceId
@@ -88,12 +89,12 @@ async function applyPaymentToInvoice(connection, customerId, amount, saleId, inv
   return { targetSaleId };
 }
 
-async function reversePaymentFromInvoice(connection, customerId, amount, saleId) {
+async function reversePaymentFromInvoice(connection, companyId, customerId, amount, saleId) {
   if (!saleId) {
     return;
   }
 
-  const { relatedSale, relatedInvoice } = await findPaymentTarget(connection, customerId, saleId);
+  const { relatedSale, relatedInvoice } = await findPaymentTarget(connection, companyId, customerId, saleId);
   const target = relatedInvoice || relatedSale;
   if (!target) {
     return;
@@ -120,6 +121,7 @@ async function reversePaymentFromInvoice(connection, customerId, amount, saleId)
 async function addPayment(req, res, next) {
   const connection = await pool.getConnection();
   try {
+    const companyId = req.user.company_id;
     const { customer_id, amount, payment_method, notes, sale_id, invoice_id } = req.body;
     const paymentAmount = Number(amount || 0);
     if (paymentAmount <= 0) {
@@ -127,26 +129,26 @@ async function addPayment(req, res, next) {
     }
 
     await connection.beginTransaction();
-    const [customerRows] = await connection.execute('SELECT current_balance FROM customers WHERE id = ?', [customer_id]);
+    const [customerRows] = await connection.execute('SELECT current_balance FROM customers WHERE id = ? AND company_id = ?', [customer_id, companyId]);
     if (!customerRows.length) {
       throw { statusCode: 404, message: 'Customer not found' };
     }
 
     const previousBalance = customerRows[0].current_balance;
     const newBalance = Math.max(0, Number(previousBalance || 0) - paymentAmount);
-    const { targetSaleId } = await applyPaymentToInvoice(connection, customer_id, paymentAmount, sale_id, invoice_id);
+    const { targetSaleId } = await applyPaymentToInvoice(connection, companyId, customer_id, paymentAmount, sale_id, invoice_id);
 
     const [paymentResult] = await connection.execute(
-      `INSERT INTO payments (customer_id, user_id, sale_id, amount, payment_method, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-      [customer_id, req.user.id, targetSaleId || null, paymentAmount, payment_method || 'cash', notes || null]
+      `INSERT INTO payments (company_id, customer_id, user_id, sale_id, amount, payment_method, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [companyId, customer_id, req.user.id, targetSaleId || null, paymentAmount, payment_method || 'cash', notes || null]
     );
 
     await connection.execute('UPDATE customers SET current_balance = ? WHERE id = ?', [newBalance, customer_id]);
     await connection.execute(
-      `INSERT INTO ledger_entries (customer_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [customer_id, paymentResult.insertId, 'payment', paymentAmount, previousBalance, newBalance, notes || 'Payment collected']
+      `INSERT INTO ledger_entries (company_id, customer_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [companyId, customer_id, paymentResult.insertId, 'payment', paymentAmount, previousBalance, newBalance, notes || 'Payment collected']
     );
 
     await connection.commit();
@@ -169,7 +171,8 @@ async function listPayments(req, res, next) {
        FROM payments p
        LEFT JOIN customers c ON c.id = p.customer_id
        LEFT JOIN sales s ON s.id = p.sale_id
-       WHERE 1=1`;
+       WHERE p.company_id = ?`;
+    params.push(req.user.company_id);
 
     if (customer_id) {
       query += ' AND p.customer_id = ?';
@@ -212,41 +215,41 @@ async function updatePayment(req, res, next) {
     }
 
     await connection.beginTransaction();
-    const [paymentRows] = await connection.execute('SELECT * FROM payments WHERE id = ?', [id]);
+    const [paymentRows] = await connection.execute('SELECT * FROM payments WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!paymentRows.length) {
       throw { statusCode: 404, message: 'Payment not found' };
     }
 
     const oldPayment = paymentRows[0];
-    const [oldCustomerRows] = await connection.execute('SELECT current_balance FROM customers WHERE id = ?', [oldPayment.customer_id]);
+    const [oldCustomerRows] = await connection.execute('SELECT current_balance FROM customers WHERE id = ? AND company_id = ?', [oldPayment.customer_id, req.user.company_id]);
     if (!oldCustomerRows.length) {
       throw { statusCode: 404, message: 'Customer not found' };
     }
 
     const oldCustomerBalance = Number(oldCustomerRows[0].current_balance || 0);
     const balanceAfterReverse = oldCustomerBalance + Number(oldPayment.amount || 0);
-    await reversePaymentFromInvoice(connection, oldPayment.customer_id, Number(oldPayment.amount || 0), oldPayment.sale_id);
+    await reversePaymentFromInvoice(connection, req.user.company_id, oldPayment.customer_id, Number(oldPayment.amount || 0), oldPayment.sale_id);
     await connection.execute('UPDATE customers SET current_balance = ? WHERE id = ?', [balanceAfterReverse, oldPayment.customer_id]);
 
     const targetCustomerId = customer_id || oldPayment.customer_id;
-    const [customerRows] = await connection.execute('SELECT current_balance FROM customers WHERE id = ?', [targetCustomerId]);
+    const [customerRows] = await connection.execute('SELECT current_balance FROM customers WHERE id = ? AND company_id = ?', [targetCustomerId, req.user.company_id]);
     if (!customerRows.length) {
       throw { statusCode: 404, message: 'Customer not found' };
     }
 
     const previousBalance = Number(customerRows[0].current_balance || 0);
     const newBalance = Math.max(0, previousBalance - paymentAmount);
-    const { targetSaleId } = await applyPaymentToInvoice(connection, targetCustomerId, paymentAmount, sale_id, invoice_id);
+    const { targetSaleId } = await applyPaymentToInvoice(connection, req.user.company_id, targetCustomerId, paymentAmount, sale_id, invoice_id);
 
     await connection.execute(
-      'UPDATE payments SET customer_id = ?, sale_id = ?, amount = ?, payment_method = ?, notes = ? WHERE id = ?',
-      [targetCustomerId, targetSaleId || null, paymentAmount, payment_method || 'cash', notes || null, id]
+      'UPDATE payments SET customer_id = ?, sale_id = ?, amount = ?, payment_method = ?, notes = ? WHERE id = ? AND company_id = ?',
+      [targetCustomerId, targetSaleId || null, paymentAmount, payment_method || 'cash', notes || null, id, req.user.company_id]
     );
     await connection.execute('UPDATE customers SET current_balance = ? WHERE id = ?', [newBalance, targetCustomerId]);
     await connection.execute(
-      `INSERT INTO ledger_entries (customer_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [targetCustomerId, id, 'adjustment', paymentAmount, previousBalance, newBalance, notes || 'Payment updated']
+      `INSERT INTO ledger_entries (company_id, customer_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [req.user.company_id, targetCustomerId, id, 'adjustment', paymentAmount, previousBalance, newBalance, notes || 'Payment updated']
     );
 
     await connection.commit();
@@ -264,13 +267,13 @@ async function deletePayment(req, res, next) {
   try {
     const { id } = req.params;
     await connection.beginTransaction();
-    const [paymentRows] = await connection.execute('SELECT * FROM payments WHERE id = ?', [id]);
+    const [paymentRows] = await connection.execute('SELECT * FROM payments WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!paymentRows.length) {
       throw { statusCode: 404, message: 'Payment not found' };
     }
 
     const payment = paymentRows[0];
-    const [customerRows] = await connection.execute('SELECT current_balance FROM customers WHERE id = ?', [payment.customer_id]);
+    const [customerRows] = await connection.execute('SELECT current_balance FROM customers WHERE id = ? AND company_id = ?', [payment.customer_id, req.user.company_id]);
     if (!customerRows.length) {
       throw { statusCode: 404, message: 'Customer not found' };
     }
@@ -278,14 +281,14 @@ async function deletePayment(req, res, next) {
     const previousBalance = Number(customerRows[0].current_balance || 0);
     const newBalance = previousBalance + Number(payment.amount || 0);
 
-    await reversePaymentFromInvoice(connection, payment.customer_id, Number(payment.amount || 0), payment.sale_id);
+    await reversePaymentFromInvoice(connection, req.user.company_id, payment.customer_id, Number(payment.amount || 0), payment.sale_id);
     await connection.execute('UPDATE customers SET current_balance = ? WHERE id = ?', [newBalance, payment.customer_id]);
     await connection.execute(
-      `INSERT INTO ledger_entries (customer_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [payment.customer_id, id, 'adjustment', Number(payment.amount || 0), previousBalance, newBalance, 'Payment deleted']
+      `INSERT INTO ledger_entries (company_id, customer_id, payment_id, transaction_type, amount, previous_balance, current_balance, remarks, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [req.user.company_id, payment.customer_id, id, 'adjustment', Number(payment.amount || 0), previousBalance, newBalance, 'Payment deleted']
     );
-    await connection.execute('DELETE FROM payments WHERE id = ?', [id]);
+    await connection.execute('DELETE FROM payments WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
 
     await connection.commit();
     res.json({ success: true, message: 'Payment deleted successfully' });

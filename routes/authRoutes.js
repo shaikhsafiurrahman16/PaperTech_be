@@ -21,7 +21,8 @@ router.post(
     body('full_name').trim().notEmpty().withMessage('Full name is required'),
     body('username').trim().notEmpty().withMessage('Username is required'),
     body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-    body('role').optional().isIn(['admin', 'customer']).withMessage('Role must be admin or customer'),
+    body('role').optional().isIn(['super_admin', 'admin']).withMessage('Role must be super_admin or admin'),
+    body('company_id').optional({ nullable: true }).isInt().withMessage('company_id must be valid'),
   ],
   validateRequest,
   register
