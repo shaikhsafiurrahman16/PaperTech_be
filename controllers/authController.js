@@ -123,4 +123,75 @@ async function register(req, res, next) {
   }
 }
 
-module.exports = { login, register };
+function getAuthTable(role) {
+  if (role === 'super_admin' || role === 'admin') {
+    return {
+      table: 'users',
+      idColumn: 'id',
+      selectColumns: 'id, full_name, username, password, role, company_id',
+      updateColumns: ['password'],
+    };
+  }
+
+  if (role === 'customer') {
+    return {
+      table: 'customers',
+      idColumn: 'id',
+      selectColumns: 'id, full_name, username, password, company_id',
+      updateColumns: ['password'],
+    };
+  }
+
+  if (role === 'vendor') {
+    return {
+      table: 'vendors',
+      idColumn: 'id',
+      selectColumns: 'id, full_name, username, password, company_id',
+      updateColumns: ['password'],
+    };
+  }
+
+  return null;
+}
+
+async function changePassword(req, res, next) {
+  try {
+    const { current_password, new_password } = req.body;
+    const authTable = getAuthTable(req.user.role);
+
+    if (!authTable) {
+      return res.status(400).json({ success: false, message: 'Unsupported account type' });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT ${authTable.selectColumns} FROM ${authTable.table} WHERE ${authTable.idColumn} = ?`,
+      [req.user.id],
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'Account not found' });
+    }
+
+    const account = rows[0];
+    const currentPasswordValid = await isPasswordValid(current_password, account.password);
+
+    if (!currentPasswordValid) {
+      return res.status(400).json({ success: false, message: 'Current password is incorrect' });
+    }
+
+    const hashedPassword = await bcrypt.hash(new_password, 10);
+    await pool.query(
+      `UPDATE ${authTable.table} SET password = ?, updated_at = NOW() WHERE ${authTable.idColumn} = ?`,
+      [hashedPassword, req.user.id],
+    );
+
+    return res.json({
+      success: true,
+      message: 'Password updated successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { login, register, changePassword };

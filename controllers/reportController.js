@@ -16,16 +16,22 @@ function addDateFilters(baseQuery, params, tableAlias, fromDate, toDate) {
 async function dashboardSummary(req, res, next) {
   try {
     const { from_date, to_date } = req.query;
-    const salesParams = [];
-    const customerParams = [];
+    const salesParams = [req.user.company_id];
+    const customerParams = [req.user.company_id];
+    const vendorParams = [req.user.company_id];
     const salesQuery = addDateFilters(
-      'SELECT SUM(s.grand_total) as total_sales, COUNT(*) as total_invoices, SUM(s.remaining_balance) as total_pending_payments FROM sales s WHERE s.company_id = ?',
+      `SELECT
+        COUNT(*) AS total_sales,
+        SUM(grand_total) AS total_revenue,
+        SUM(payment_received) AS total_paid_amount,
+        SUM(CASE WHEN remaining_balance > 0 THEN 1 ELSE 0 END) AS pending_invoices,
+        SUM(remaining_balance) AS pending_amount
+       FROM sales s WHERE s.company_id = ?`,
       salesParams,
       's',
       from_date,
       to_date
     );
-    salesParams.unshift(req.user.company_id);
     const customersQuery = addDateFilters(
       'SELECT COUNT(*) as total_customers FROM customers c WHERE c.company_id = ?',
       customerParams,
@@ -33,10 +39,17 @@ async function dashboardSummary(req, res, next) {
       from_date,
       to_date
     );
-    customerParams.unshift(req.user.company_id);
+    const vendorsQuery = addDateFilters(
+      'SELECT COUNT(*) as total_vendors FROM vendors v WHERE v.company_id = ?',
+      vendorParams,
+      'v',
+      from_date,
+      to_date
+    );
 
     const [salesRows] = await pool.query(salesQuery, salesParams);
     const [customersRows] = await pool.query(customersQuery, customerParams);
+    const [vendorsRows] = await pool.query(vendorsQuery, vendorParams);
     const [stockRows] = await pool.query('SELECT SUM(current_stock) as total_stock FROM products WHERE company_id = ?', [req.user.company_id]);
     const [lowStockRows] = await pool.query('SELECT COUNT(*) as low_stock_count FROM products WHERE company_id = ? AND current_stock <= min_stock_alert', [req.user.company_id]);
 
@@ -44,9 +57,13 @@ async function dashboardSummary(req, res, next) {
       success: true,
       data: {
         total_sales: salesRows[0].total_sales || 0,
+        total_revenue: salesRows[0].total_revenue || 0,
+        total_paid_amount: salesRows[0].total_paid_amount || 0,
+        pending_invoices: salesRows[0].pending_invoices || 0,
+        pending_amount: salesRows[0].pending_amount || 0,
         total_customers: customersRows[0].total_customers || 0,
+        total_vendors: vendorsRows[0].total_vendors || 0,
         total_stock: stockRows[0].total_stock || 0,
-        total_pending_payments: salesRows[0].total_pending_payments || 0,
         low_stock_alerts: lowStockRows[0].low_stock_count || 0,
       },
     });
