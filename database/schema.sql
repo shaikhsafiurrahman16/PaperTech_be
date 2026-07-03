@@ -18,14 +18,32 @@ CREATE TABLE companies (
 CREATE TABLE users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   full_name VARCHAR(150) NOT NULL,
+  email VARCHAR(150),
+  cnic VARCHAR(30),
+  address TEXT,
   username VARCHAR(100) NOT NULL UNIQUE,
   password VARCHAR(255) NOT NULL,
-  role ENUM('super_admin','admin','customer','vendor') NOT NULL DEFAULT 'admin',
+  role ENUM('super_admin','admin','company_user','customer','vendor') NOT NULL DEFAULT 'admin',
   company_id INT NULL,
+  allowed_modules TEXT NULL,
+  policy_id INT NULL,
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL,
   INDEX idx_users_company_id (company_id),
+  INDEX idx_users_policy_id (policy_id),
   CONSTRAINT fk_users_company_id FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE policies (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  description TEXT NULL,
+  allowed_modules TEXT NOT NULL,
+  company_id INT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_policy_name_company (name, company_id),
+  CONSTRAINT fk_policies_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 
 CREATE TABLE customers (
@@ -301,6 +319,33 @@ CREATE TABLE chat_messages (
   INDEX idx_chat_created_at (created_at),
   CONSTRAINT fk_chat_messages_company_id FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE RESTRICT
 );
+
+INSERT INTO policies (name, description, allowed_modules, company_id, created_at, updated_at)
+VALUES
+  (
+    'Full Admin Access',
+    'All modules with full access for company admin',
+    '["dashboard.view","users.view","users.create","users.update","users.delete","customers.view","customers.create","customers.update","customers.delete","vendors.view","vendors.create","vendors.update","vendors.delete","purchases.view","purchases.create","purchases.update","purchases.delete","products.view","products.create","products.update","products.delete","sales.view","sales.create","sales.update","sales.delete","invoices.view","invoices.create","invoices.update","invoices.delete","payments.view","payments.create","payments.update","payments.delete","reports.view","chat.view"]',
+    NULL,
+    NOW(),
+    NOW()
+  ),
+  (
+    'Sales Staff',
+    'Sales, customers, invoices and reports access',
+    '["dashboard.view","customers.view","customers.create","customers.update","sales.view","sales.create","invoices.view","reports.view","chat.view"]',
+    NULL,
+    NOW(),
+    NOW()
+  ),
+  (
+    'Inventory Staff',
+    'Products, purchases and vendors access',
+    '["dashboard.view","products.view","products.create","products.update","purchases.view","purchases.create","vendors.view","vendors.create","chat.view"]',
+    NULL,
+    NOW(),
+    NOW()
+  );
 
 SET @seed_run_at = '2026-05-23 22:15:00';
 

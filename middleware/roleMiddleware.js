@@ -1,3 +1,5 @@
+const { hasModuleAccess, hasAnyModuleAction } = require('../config/accessModules');
+
 function authorize(...roles) {
   return (req, res, next) => {
     if (!req.user) {
@@ -13,4 +15,22 @@ function authorize(...roles) {
   };
 }
 
-module.exports = { authorize };
+function requireModule(moduleKey, actionKey = 'view') {
+  return (req, res, next) => {
+    if (!req.user || !hasModuleAccess(req.user, moduleKey, actionKey)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: module access denied' });
+    }
+    next();
+  };
+}
+
+function requireAnyModule(moduleKeys) {
+  return (req, res, next) => {
+    if (!req.user || !moduleKeys.some((moduleKey) => hasAnyModuleAction(req.user, moduleKey))) {
+      return res.status(403).json({ success: false, message: 'Forbidden: module access denied' });
+    }
+    next();
+  };
+}
+
+module.exports = { authorize, requireModule, requireAnyModule };

@@ -20,6 +20,8 @@ router.post(
     body('admin_full_name').optional().trim().notEmpty().withMessage('Admin full name is required'),
     body('admin_username').trim().notEmpty().withMessage('Admin username is required'),
     body('admin_password').isLength({ min: 6 }).withMessage('Admin password must be at least 6 characters'),
+    body('policy_id').optional().isInt({ min: 1 }).withMessage('Invalid policy id'),
+    body('admin_allowed_modules').optional().isArray().withMessage('Admin policies must be a list'),
   ],
   validateRequest,
   createCompany
@@ -30,6 +32,8 @@ router.put(
     body('name').trim().notEmpty().withMessage('Company name is required'),
     body('code').trim().notEmpty().withMessage('Company code is required'),
     body('status').optional().isIn(['active', 'inactive']).withMessage('Invalid status'),
+    body('policy_id').optional().isInt({ min: 1 }).withMessage('Invalid policy id'),
+    body('admin_allowed_modules').optional().isArray().withMessage('Admin policies must be a list'),
   ],
   validateRequest,
   updateCompany

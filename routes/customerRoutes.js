@@ -1,7 +1,7 @@
 const express = require('express');
 const { body } = require('express-validator');
 const { protect } = require('../middleware/authMiddleware');
-const { authorize } = require('../middleware/roleMiddleware');
+const { authorize, requireModule } = require('../middleware/roleMiddleware');
 const { validateRequest } = require('../middleware/validateMiddleware');
 const {
   createCustomer,
@@ -14,11 +14,12 @@ const {
 const router = express.Router();
 
 router.use(protect);
-router.get('/', authorize('admin'), listCustomers);
-router.get('/:id', authorize('admin', 'customer'), getCustomer);
+router.get('/', authorize('admin', 'company_user'), requireModule('customers', 'view'), listCustomers);
+router.get('/:id', authorize('admin', 'company_user', 'customer'), requireModule('customers', 'view'), getCustomer);
 router.post(
   '/',
-  authorize('admin'),
+  authorize('admin', 'company_user'),
+  requireModule('customers', 'create'),
   [
     body('full_name').trim().notEmpty().withMessage('Full name is required'),
     body('phone')
@@ -42,7 +43,8 @@ router.post(
 );
 router.put(
   '/:id',
-  authorize('admin'),
+  authorize('admin', 'company_user'),
+  requireModule('customers', 'update'),
   [
     body('full_name').trim().notEmpty().withMessage('Full name is required'),
     body('phone')
@@ -59,6 +61,6 @@ router.put(
   validateRequest,
   updateCustomer
 );
-router.delete('/:id', authorize('admin'), deleteCustomer);
+router.delete('/:id', authorize('admin', 'company_user'), requireModule('customers', 'delete'), deleteCustomer);
 
 module.exports = router;

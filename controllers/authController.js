@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const pool = require('../config/db');
 const { generateToken } = require('../utils/jwt');
+const { normalizeModules } = require('../config/accessModules');
 
 async function isPasswordValid(plainText, storedPassword) {
   if (!storedPassword) return false;
@@ -14,7 +15,7 @@ async function login(req, res, next) {
   try {
     const { username, password } = req.body;
     const [superAdminRows] = await pool.query(
-      'SELECT id, full_name, username, password, role FROM users WHERE username = ? AND role = "super_admin"',
+      'SELECT id, full_name, username, password, role, allowed_modules FROM users WHERE username = ? AND role = "super_admin"',
       [username]
     );
     if (superAdminRows.length) {
@@ -26,15 +27,15 @@ async function login(req, res, next) {
       const token = generateToken(user);
       return res.json({
         success: true,
-        data: { id: user.id, full_name: user.full_name, username: user.username, role: user.role, token, company_id: null, company_name: 'Global' },
+        data: { id: user.id, full_name: user.full_name, username: user.username, role: user.role, allowed_modules: normalizeModules(user.allowed_modules), token, company_id: null, company_name: 'Global' },
       });
     }
 
     const [adminRows] = await pool.query(
-      `SELECT u.id, u.full_name, u.username, u.password, u.role, u.company_id, c.name AS company_name
+      `SELECT u.id, u.full_name, u.username, u.password, u.role, u.company_id, u.allowed_modules, c.name AS company_name
        FROM users u
        INNER JOIN companies c ON c.id = u.company_id
-       WHERE u.username = ? AND u.role = "admin"`,
+       WHERE u.username = ? AND u.role IN ("admin", "company_user")`,
       [username]
     );
     if (adminRows.length) {
@@ -47,7 +48,7 @@ async function login(req, res, next) {
       const token = generateToken(user);
       return res.json({
         success: true,
-        data: { id: user.id, full_name: user.full_name, username: user.username, role: user.role, token, company_id: user.company_id, company_name: user.company_name },
+        data: { id: user.id, full_name: user.full_name, username: user.username, role: user.role, allowed_modules: normalizeModules(user.allowed_modules), token, company_id: user.company_id, company_name: user.company_name },
       });
     }
 
@@ -101,7 +102,7 @@ async function login(req, res, next) {
 
 async function register(req, res, next) {
   try {
-    const { full_name, username, password, role, company_id } = req.body;
+    const { full_name, username, password, role, company_id, allowed_modules } = req.body;
     const [exists] = await pool.query('SELECT id FROM users WHERE username = ? AND role IN ("admin", "super_admin")', [username]);
     if (exists.length) {
       return res.status(409).json({ success: false, message: 'Username already exists' });
@@ -113,18 +114,18 @@ async function register(req, res, next) {
 
     const hashed = await bcrypt.hash(password, 10);
     const [result] = await pool.query(
-      'INSERT INTO users (full_name, username, password, role, company_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
-      [full_name, username, hashed, role || 'admin', role === 'super_admin' ? null : company_id]
+      'INSERT INTO users (full_name, username, password, role, company_id, allowed_modules, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())',
+      [full_name, username, hashed, role || 'admin', role === 'super_admin' ? null : company_id, role === 'super_admin' ? null : JSON.stringify(normalizeModules(allowed_modules) || [])]
     );
 
-    res.status(201).json({ success: true, data: { id: result.insertId, full_name, username, role: role || 'admin', company_id: role === 'super_admin' ? null : company_id } });
+    res.status(201).json({ success: true, data: { id: result.insertId, full_name, username, role: role || 'admin', company_id: role === 'super_admin' ? null : company_id, allowed_modules: normalizeModules(allowed_modules) } });
   } catch (error) {
     next(error);
   }
 }
 
 function getAuthTable(role) {
-  if (role === 'super_admin' || role === 'admin') {
+  if (role === 'super_admin' || role === 'admin' || role === 'company_user') {
     return {
       table: 'users',
       idColumn: 'id',

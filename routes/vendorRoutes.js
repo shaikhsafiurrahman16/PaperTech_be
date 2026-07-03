@@ -1,7 +1,7 @@
 const express = require('express');
 const { body } = require('express-validator');
 const { protect } = require('../middleware/authMiddleware');
-const { authorize } = require('../middleware/roleMiddleware');
+const { authorize, requireModule } = require('../middleware/roleMiddleware');
 const { validateRequest } = require('../middleware/validateMiddleware');
 const {
   createVendor,
@@ -14,11 +14,12 @@ const {
 const router = express.Router();
 
 router.use(protect);
-router.get('/', authorize('admin'), listVendors);
-router.get('/:id', authorize('admin', 'vendor'), getVendor);
+router.get('/', authorize('admin', 'company_user'), requireModule('vendors', 'view'), listVendors);
+router.get('/:id', authorize('admin', 'company_user', 'vendor'), requireModule('vendors', 'view'), getVendor);
 router.post(
   '/',
-  authorize('admin'),
+  authorize('admin', 'company_user'),
+  requireModule('vendors', 'create'),
   [
     body('full_name').trim().notEmpty().withMessage('Full name is required'),
     body('phone')
@@ -42,7 +43,8 @@ router.post(
 );
 router.put(
   '/:id',
-  authorize('admin'),
+  authorize('admin', 'company_user'),
+  requireModule('vendors', 'update'),
   [
     body('full_name').trim().notEmpty().withMessage('Full name is required'),
     body('phone')
@@ -58,6 +60,6 @@ router.put(
   validateRequest,
   updateVendor
 );
-router.delete('/:id', authorize('admin'), deleteVendor);
+router.delete('/:id', authorize('admin', 'company_user'), requireModule('vendors', 'delete'), deleteVendor);
 
 module.exports = router;

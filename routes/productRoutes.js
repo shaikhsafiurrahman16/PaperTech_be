@@ -1,7 +1,7 @@
 const express = require('express');
 const { body } = require('express-validator');
 const { protect } = require('../middleware/authMiddleware');
-const { authorize } = require('../middleware/roleMiddleware');
+const { authorize, requireModule } = require('../middleware/roleMiddleware');
 const { validateRequest } = require('../middleware/validateMiddleware');
 const {
   addProduct,
@@ -19,11 +19,12 @@ const grams = [42, 52, 60, 68, 70, 75, 80, 90, 100, 150, 113, 128, 230, 250, 300
 const units = ['Card', 'Paper', 'sticker'];
 
 router.use(protect);
-router.get('/', authorize('admin'), listProducts);
-router.get('/:id', authorize('admin', 'customer'), getProduct);
+router.get('/', authorize('admin', 'company_user'), requireModule('products', 'view'), listProducts);
+router.get('/:id', authorize('admin', 'company_user', 'customer'), requireModule('products', 'view'), getProduct);
 router.post(
   '/',
-  authorize('admin'),
+  authorize('admin', 'company_user'),
+  requireModule('products', 'create'),
   [
     body('name').trim().notEmpty().withMessage('Product name is required'),
     body('product_type').isIn(paperTypes).withMessage('Product type is invalid'),
@@ -39,7 +40,8 @@ router.post(
 );
 router.put(
   '/:id',
-  authorize('admin'),
+  authorize('admin', 'company_user'),
+  requireModule('products', 'update'),
   [
     body('name').trim().notEmpty().withMessage('Product name is required'),
     body('product_type').isIn(paperTypes).withMessage('Product type is invalid'),
@@ -53,7 +55,7 @@ router.put(
   validateRequest,
   updateProduct
 );
-router.patch('/:id/stock', authorize('admin'), updateStock);
-router.delete('/:id', authorize('admin'), deleteProduct);
+router.patch('/:id/stock', authorize('admin', 'company_user'), requireModule('products', 'update'), updateStock);
+router.delete('/:id', authorize('admin', 'company_user'), requireModule('products', 'delete'), deleteProduct);
 
 module.exports = router;

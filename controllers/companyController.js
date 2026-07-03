@@ -1,9 +1,36 @@
+const bcrypt = require('bcrypt');
 const pool = require('../config/db');
+const { serializeModules, normalizeModules } = require('../config/accessModules');
+const { resolvePolicyAssignment } = require('./policyController');
 
 async function createCompany(req, res, next) {
   const connection = await pool.getConnection();
   try {
-    const { name, code, address, phone, admin_full_name, admin_username, admin_password } = req.body;
+    const {
+      name,
+      code,
+      address,
+      phone,
+      admin_full_name,
+      admin_username,
+      admin_password,
+      admin_allowed_modules,
+      policy_id,
+    } = req.body;
+
+    let adminModules = normalizeModules(admin_allowed_modules) || [];
+    let adminPolicyId = null;
+
+    if (policy_id) {
+      const assignment = await resolvePolicyAssignment(req.user, policy_id);
+      adminModules = assignment.allowed_modules;
+      adminPolicyId = assignment.policy_id;
+    }
+
+    if (!adminModules.length) {
+      return res.status(400).json({ success: false, message: 'Admin policy is required' });
+    }
+
     const [exists] = await connection.query('SELECT id FROM companies WHERE name = ? OR code = ?', [name, code]);
     if (exists.length) {
       return res.status(409).json({ success: false, message: 'Company already exists' });
@@ -16,11 +43,12 @@ async function createCompany(req, res, next) {
     await connection.beginTransaction();
     const [result] = await connection.query(
       'INSERT INTO companies (name, code, address, phone, status, created_at, updated_at) VALUES (?, ?, ?, ?, "active", NOW(), NOW())',
-      [name, code, address || null, phone || null]
+      [name, code, address || null, phone || null],
     );
+    const hashedAdminPassword = await bcrypt.hash(admin_password, 10);
     const [adminResult] = await connection.query(
-      'INSERT INTO users (full_name, username, password, role, company_id, created_at, updated_at) VALUES (?, ?, ?, "admin", ?, NOW(), NOW())',
-      [admin_full_name || 'Company Admin', admin_username, admin_password, result.insertId]
+      'INSERT INTO users (full_name, username, password, role, company_id, allowed_modules, policy_id, created_at, updated_at) VALUES (?, ?, ?, "admin", ?, ?, ?, NOW(), NOW())',
+      [admin_full_name || 'Company Admin', admin_username, hashedAdminPassword, result.insertId, serializeModules(adminModules), adminPolicyId],
     );
     await connection.commit();
     res.status(201).json({
@@ -36,11 +64,16 @@ async function createCompany(req, res, next) {
           id: adminResult.insertId,
           full_name: admin_full_name || 'Company Admin',
           username: admin_username,
+          policy_id: adminPolicyId,
+          allowed_modules: adminModules,
         },
       },
     });
   } catch (error) {
     await connection.rollback();
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     next(error);
   } finally {
     connection.release();
@@ -49,8 +82,46 @@ async function createCompany(req, res, next) {
 
 async function listCompanies(req, res, next) {
   try {
-    const [rows] = await pool.query('SELECT id, name, code, address, phone, status, created_at FROM companies ORDER BY created_at DESC');
-    res.json({ success: true, data: rows });
+    const [rows] = await pool.query(
+      `SELECT
+         c.id,
+         c.name,
+         c.code,
+         c.address,
+         c.phone,
+         c.status,
+         c.created_at,
+         u.id AS admin_id,
+         u.full_name AS admin_full_name,
+         u.username AS admin_username,
+         u.policy_id AS admin_policy_id,
+         u.allowed_modules AS admin_allowed_modules
+       FROM companies c
+       LEFT JOIN users u ON u.company_id = c.id AND u.role = 'admin'
+       ORDER BY c.created_at DESC`,
+    );
+
+    res.json({
+      success: true,
+      data: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        code: row.code,
+        address: row.address,
+        phone: row.phone,
+        status: row.status,
+        created_at: row.created_at,
+        admin: row.admin_id
+          ? {
+              id: row.admin_id,
+              full_name: row.admin_full_name,
+              username: row.admin_username,
+              policy_id: row.admin_policy_id,
+              allowed_modules: normalizeModules(row.admin_allowed_modules) || [],
+            }
+          : null,
+      })),
+    });
   } catch (error) {
     next(error);
   }
@@ -59,31 +130,109 @@ async function listCompanies(req, res, next) {
 async function getCompany(req, res, next) {
   try {
     const { id } = req.params;
-    const [rows] = await pool.query('SELECT id, name, code, address, phone, status, created_at, updated_at FROM companies WHERE id = ?', [id]);
+    const [rows] = await pool.query(
+      `SELECT
+         c.id,
+         c.name,
+         c.code,
+         c.address,
+         c.phone,
+         c.status,
+         c.created_at,
+         c.updated_at,
+         u.id AS admin_id,
+         u.full_name AS admin_full_name,
+         u.username AS admin_username,
+         u.policy_id AS admin_policy_id,
+         u.allowed_modules AS admin_allowed_modules
+       FROM companies c
+       LEFT JOIN users u ON u.company_id = c.id AND u.role = 'admin'
+       WHERE c.id = ?`,
+      [id],
+    );
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Company not found' });
     }
-    res.json({ success: true, data: rows[0] });
+
+    const row = rows[0];
+    res.json({
+      success: true,
+      data: {
+        id: row.id,
+        name: row.name,
+        code: row.code,
+        address: row.address,
+        phone: row.phone,
+        status: row.status,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        admin: row.admin_id
+          ? {
+              id: row.admin_id,
+              full_name: row.admin_full_name,
+              username: row.admin_username,
+              policy_id: row.admin_policy_id,
+              allowed_modules: normalizeModules(row.admin_allowed_modules) || [],
+            }
+          : null,
+      },
+    });
   } catch (error) {
     next(error);
   }
 }
 
 async function updateCompany(req, res, next) {
+  const connection = await pool.getConnection();
   try {
     const { id } = req.params;
-    const { name, code, address, phone, status } = req.body;
-    const [rows] = await pool.query('SELECT id FROM companies WHERE id = ?', [id]);
+    const { name, code, address, phone, status, policy_id, admin_allowed_modules } = req.body;
+
+    const [rows] = await connection.query('SELECT id FROM companies WHERE id = ?', [id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Company not found' });
     }
-    await pool.query(
+
+    let adminModules = null;
+    let adminPolicyId = null;
+
+    if (policy_id || admin_allowed_modules) {
+      if (policy_id) {
+        const assignment = await resolvePolicyAssignment(req.user, policy_id);
+        adminModules = assignment.allowed_modules;
+        adminPolicyId = assignment.policy_id;
+      } else {
+        adminModules = normalizeModules(admin_allowed_modules) || [];
+      }
+
+      if (!adminModules.length) {
+        return res.status(400).json({ success: false, message: 'Admin policy is required' });
+      }
+    }
+
+    await connection.beginTransaction();
+    await connection.query(
       'UPDATE companies SET name = ?, code = ?, address = ?, phone = ?, status = ?, updated_at = NOW() WHERE id = ?',
-      [name, code, address || null, phone || null, status || 'active', id]
+      [name, code, address || null, phone || null, status || 'active', id],
     );
+
+    if (adminModules) {
+      await connection.query(
+        'UPDATE users SET allowed_modules = ?, policy_id = ?, updated_at = NOW() WHERE company_id = ? AND role = "admin"',
+        [serializeModules(adminModules), adminPolicyId, id],
+      );
+    }
+
+    await connection.commit();
     res.json({ success: true, message: 'Company updated successfully' });
   } catch (error) {
+    await connection.rollback();
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     next(error);
+  } finally {
+    connection.release();
   }
 }
 
@@ -101,7 +250,7 @@ async function deleteCompany(req, res, next) {
         (SELECT COUNT(*) FROM vendors WHERE company_id = ?) AS vendors_count,
         (SELECT COUNT(*) FROM sales WHERE company_id = ?) AS sales_count,
         (SELECT COUNT(*) FROM purchases WHERE company_id = ?) AS purchases_count`,
-      [id, id, id, id, id]
+      [id, id, id, id, id],
     );
     const usage = usageRows[0];
     if (Number(usage.users_count || 0) > 0 || Number(usage.customers_count || 0) > 0 || Number(usage.vendors_count || 0) > 0 || Number(usage.sales_count || 0) > 0 || Number(usage.purchases_count || 0) > 0) {

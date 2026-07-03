@@ -12,6 +12,8 @@ const vendorPaymentRoutes = require('./vendorPaymentRoutes');
 const vendorLedgerRoutes = require('./vendorLedgerRoutes');
 const chatRoutes = require('./chatRoutes');
 const companyRoutes = require('./companyRoutes');
+const userRoutes = require('./userRoutes');
+const policyRoutes = require('./policyRoutes');
 
 const router = express.Router();
 
@@ -28,5 +30,7 @@ router.use('/vendor-payments', vendorPaymentRoutes);
 router.use('/vendor-ledger', vendorLedgerRoutes);
 router.use('/chat', chatRoutes);
 router.use('/companies', companyRoutes);
+router.use('/users', userRoutes);
+router.use('/policies', policyRoutes);
 
 module.exports = router;

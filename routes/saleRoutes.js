@@ -1,18 +1,19 @@
 const express = require('express');
 const { body } = require('express-validator');
 const { protect } = require('../middleware/authMiddleware');
-const { authorize } = require('../middleware/roleMiddleware');
+const { authorize, requireModule } = require('../middleware/roleMiddleware');
 const { validateRequest } = require('../middleware/validateMiddleware');
 const { createSale, listSales, getSaleDetails, updateSale, deleteSale } = require('../controllers/saleController');
 
 const router = express.Router();
 router.use(protect);
 
-router.get('/', authorize('admin', 'customer'), listSales);
-router.get('/:id', authorize('admin', 'customer'), getSaleDetails);
+router.get('/', authorize('admin', 'company_user', 'customer'), requireModule('sales', 'view'), listSales);
+router.get('/:id', authorize('admin', 'company_user', 'customer'), requireModule('sales', 'view'), getSaleDetails);
 router.post(
   '/',
-  authorize('admin'),
+  authorize('admin', 'company_user'),
+  requireModule('sales', 'create'),
   [
     body('customer_id')
       .optional({ nullable: true })
@@ -30,7 +31,8 @@ router.post(
 
 router.put(
   '/:id',
-  authorize('admin'),
+  authorize('admin', 'company_user'),
+  requireModule('sales', 'update'),
   [
     body('sale_type')
       .optional()
@@ -42,6 +44,6 @@ router.put(
   updateSale
 );
 
-router.delete('/:id', authorize('admin'), deleteSale);
+router.delete('/:id', authorize('admin', 'company_user'), requireModule('sales', 'delete'), deleteSale);
 
 module.exports = router;

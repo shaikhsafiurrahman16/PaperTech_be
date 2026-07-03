@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
+const { normalizeModules } = require('../config/accessModules');
 
 async function protect(req, res, next) {
   let token = null;
@@ -17,17 +18,25 @@ async function protect(req, res, next) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     if (decoded.role === 'super_admin') {
-      const [rows] = await pool.query('SELECT id, full_name, username, role FROM users WHERE id = ? AND role = "super_admin"', [decoded.id]);
+      const [rows] = await pool.query('SELECT id, full_name, username, role, allowed_modules FROM users WHERE id = ? AND role = "super_admin"', [decoded.id]);
       if (rows.length) {
-        req.user = rows[0];
+        req.user = { ...rows[0], allowed_modules: normalizeModules(rows[0].allowed_modules) };
         return next();
       }
     }
 
     if (decoded.role === 'admin') {
-      const [rows] = await pool.query('SELECT id, full_name, username, role, company_id FROM users WHERE id = ? AND role = "admin"', [decoded.id]);
+      const [rows] = await pool.query('SELECT id, full_name, username, role, company_id, allowed_modules FROM users WHERE id = ? AND role = "admin"', [decoded.id]);
       if (rows.length) {
-        req.user = rows[0];
+        req.user = { ...rows[0], allowed_modules: normalizeModules(rows[0].allowed_modules) };
+        return next();
+      }
+    }
+
+    if (decoded.role === 'company_user') {
+      const [rows] = await pool.query('SELECT id, full_name, username, role, company_id, allowed_modules FROM users WHERE id = ? AND role = "company_user"', [decoded.id]);
+      if (rows.length) {
+        req.user = { ...rows[0], allowed_modules: normalizeModules(rows[0].allowed_modules) };
         return next();
       }
     }
