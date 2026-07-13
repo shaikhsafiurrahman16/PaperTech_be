@@ -1,13 +1,33 @@
 const pool = require('../config/db');
 
 function getSheetsPerPack(unitType) {
-  return String(unitType || '').toLowerCase() === 'paper' ? 500 : 100;
+  const normalized = String(unitType || '').toLowerCase();
+  if (normalized === 'paper') return 500;
+  if (normalized === 'card' || normalized === 'sticker') return 100;
+  return 1;
+}
+
+function parseSpecs(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return {};
+  }
+}
+
+function normalizeProduct(row) {
+  return {
+    ...row,
+    product_specs: parseSpecs(row.product_specs),
+  };
 }
 
 async function addProduct(req, res, next) {
   try {
     const companyId = req.user.company_id;
-    const { name, product_type, size, gram, unit_type, cost_price, sale_price, current_stock, min_stock_alert, description } = req.body;
+    const { name, product_type, size, gram, unit_type, cost_price, sale_price, current_stock, min_stock_alert, description, product_specs } = req.body;
     const sheetsPerPack = getSheetsPerPack(unit_type);
     const [exists] = await pool.query('SELECT id FROM products WHERE company_id = ? AND name = ?', [companyId, name]);
     if (exists.length) {
@@ -16,12 +36,12 @@ async function addProduct(req, res, next) {
 
     const [result] = await pool.query(
       `INSERT INTO products
-      (company_id, name, product_type, size, gram, unit_type, sheets_per_pack, cost_price, sale_price, current_stock, min_stock_alert, description, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [companyId, name, product_type, size, Number(gram) || 0, unit_type, sheetsPerPack, cost_price, sale_price, Number(current_stock || 0), Number(min_stock_alert || 0), description || null]
+      (company_id, name, product_type, size, gram, unit_type, sheets_per_pack, product_specs, cost_price, sale_price, current_stock, min_stock_alert, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      [companyId, name, product_type, size || null, Number(gram) || 0, unit_type, sheetsPerPack, JSON.stringify(product_specs || {}), cost_price, sale_price, Number(current_stock || 0), Number(min_stock_alert || 0), description || null]
     );
 
-    res.status(201).json({ success: true, data: { id: result.insertId, name, product_type, size, gram: Number(gram) || 0, unit_type, sheets_per_pack: sheetsPerPack, cost_price, sale_price, current_stock, min_stock_alert, description } });
+    res.status(201).json({ success: true, data: { id: result.insertId, name, product_type, size, gram: Number(gram) || 0, unit_type, sheets_per_pack: sheetsPerPack, product_specs: product_specs || {}, cost_price, sale_price, current_stock, min_stock_alert, description } });
   } catch (error) {
     next(error);
   }
@@ -30,7 +50,7 @@ async function addProduct(req, res, next) {
 async function listProducts(req, res, next) {
   try {
     const [rows] = await pool.query('SELECT * FROM products WHERE company_id = ? ORDER BY created_at DESC', [req.user.company_id]);
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows.map(normalizeProduct) });
   } catch (error) {
     next(error);
   }
@@ -43,7 +63,7 @@ async function getProduct(req, res, next) {
     if (!rows.length) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
-    res.json({ success: true, data: rows[0] });
+    res.json({ success: true, data: normalizeProduct(rows[0]) });
   } catch (error) {
     next(error);
   }
@@ -52,7 +72,7 @@ async function getProduct(req, res, next) {
 async function updateProduct(req, res, next) {
   try {
     const { id } = req.params;
-    const { name, product_type, size, gram, unit_type, cost_price, sale_price, current_stock, min_stock_alert, description } = req.body;
+    const { name, product_type, size, gram, unit_type, cost_price, sale_price, current_stock, min_stock_alert, description, product_specs } = req.body;
     const sheetsPerPack = getSheetsPerPack(unit_type);
     const [rows] = await pool.query('SELECT id FROM products WHERE id = ? AND company_id = ?', [id, req.user.company_id]);
     if (!rows.length) {
@@ -61,9 +81,9 @@ async function updateProduct(req, res, next) {
 
     await pool.query(
       `UPDATE products SET
-      name = ?, product_type = ?, size = ?, gram = ?, unit_type = ?, sheets_per_pack = ?, cost_price = ?, sale_price = ?, current_stock = ?, min_stock_alert = ?, description = ?, updated_at = NOW()
+      name = ?, product_type = ?, size = ?, gram = ?, unit_type = ?, sheets_per_pack = ?, product_specs = ?, cost_price = ?, sale_price = ?, current_stock = ?, min_stock_alert = ?, description = ?, updated_at = NOW()
       WHERE id = ? AND company_id = ?`,
-      [name, product_type, size, Number(gram) || 0, unit_type, sheetsPerPack, cost_price, sale_price, Number(current_stock || 0), Number(min_stock_alert || 0), description || null, id, req.user.company_id]
+      [name, product_type, size || null, Number(gram) || 0, unit_type, sheetsPerPack, JSON.stringify(product_specs || {}), cost_price, sale_price, Number(current_stock || 0), Number(min_stock_alert || 0), description || null, id, req.user.company_id]
     );
 
     res.json({ success: true, message: 'Product updated successfully' });

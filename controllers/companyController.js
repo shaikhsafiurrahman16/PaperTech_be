@@ -9,6 +9,7 @@ async function createCompany(req, res, next) {
     const {
       name,
       code,
+      field_type,
       address,
       phone,
       admin_full_name,
@@ -42,8 +43,8 @@ async function createCompany(req, res, next) {
 
     await connection.beginTransaction();
     const [result] = await connection.query(
-      'INSERT INTO companies (name, code, address, phone, status, created_at, updated_at) VALUES (?, ?, ?, ?, "active", NOW(), NOW())',
-      [name, code, address || null, phone || null],
+      'INSERT INTO companies (name, code, field_type, address, phone, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, "active", NOW(), NOW())',
+      [name, code, field_type || 'paper', address || null, phone || null],
     );
     const hashedAdminPassword = await bcrypt.hash(admin_password, 10);
     const [adminResult] = await connection.query(
@@ -57,6 +58,7 @@ async function createCompany(req, res, next) {
         id: result.insertId,
         name,
         code,
+        field_type: field_type || 'paper',
         address: address || null,
         phone: phone || null,
         status: 'active',
@@ -87,6 +89,7 @@ async function listCompanies(req, res, next) {
          c.id,
          c.name,
          c.code,
+         c.field_type,
          c.address,
          c.phone,
          c.status,
@@ -107,6 +110,7 @@ async function listCompanies(req, res, next) {
         id: row.id,
         name: row.name,
         code: row.code,
+        field_type: row.field_type || 'paper',
         address: row.address,
         phone: row.phone,
         status: row.status,
@@ -135,6 +139,7 @@ async function getCompany(req, res, next) {
          c.id,
          c.name,
          c.code,
+         c.field_type,
          c.address,
          c.phone,
          c.status,
@@ -161,6 +166,7 @@ async function getCompany(req, res, next) {
         id: row.id,
         name: row.name,
         code: row.code,
+        field_type: row.field_type || 'paper',
         address: row.address,
         phone: row.phone,
         status: row.status,
@@ -186,7 +192,7 @@ async function updateCompany(req, res, next) {
   const connection = await pool.getConnection();
   try {
     const { id } = req.params;
-    const { name, code, address, phone, status, policy_id, admin_allowed_modules } = req.body;
+    const { name, code, field_type, address, phone, status, policy_id, admin_allowed_modules, admin_full_name, admin_username, admin_password } = req.body;
 
     const [rows] = await connection.query('SELECT id FROM companies WHERE id = ?', [id]);
     if (!rows.length) {
@@ -212,14 +218,43 @@ async function updateCompany(req, res, next) {
 
     await connection.beginTransaction();
     await connection.query(
-      'UPDATE companies SET name = ?, code = ?, address = ?, phone = ?, status = ?, updated_at = NOW() WHERE id = ?',
-      [name, code, address || null, phone || null, status || 'active', id],
+      'UPDATE companies SET name = ?, code = ?, field_type = ?, address = ?, phone = ?, status = ?, updated_at = NOW() WHERE id = ?',
+      [name, code, field_type || 'paper', address || null, phone || null, status || 'active', id],
     );
 
     if (adminModules) {
       await connection.query(
         'UPDATE users SET allowed_modules = ?, policy_id = ?, updated_at = NOW() WHERE company_id = ? AND role = "admin"',
         [serializeModules(adminModules), adminPolicyId, id],
+      );
+    }
+
+    const adminUpdates = [];
+    const adminValues = [];
+    if (admin_full_name) {
+      adminUpdates.push('full_name = ?');
+      adminValues.push(admin_full_name);
+    }
+    if (admin_username) {
+      const [usernameRows] = await connection.query(
+        'SELECT id FROM users WHERE username = ? AND NOT (company_id = ? AND role = "admin")',
+        [admin_username, id],
+      );
+      if (usernameRows.length) {
+        await connection.rollback();
+        return res.status(409).json({ success: false, message: 'Admin username already exists' });
+      }
+      adminUpdates.push('username = ?');
+      adminValues.push(admin_username);
+    }
+    if (admin_password) {
+      adminUpdates.push('password = ?');
+      adminValues.push(await bcrypt.hash(admin_password, 10));
+    }
+    if (adminUpdates.length) {
+      await connection.query(
+        `UPDATE users SET ${adminUpdates.join(', ')}, updated_at = NOW() WHERE company_id = ? AND role = "admin"`,
+        [...adminValues, id],
       );
     }
 

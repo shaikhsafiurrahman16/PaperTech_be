@@ -13,11 +13,6 @@ const {
 } = require('../controllers/productController');
 
 const router = express.Router();
-const paperTypes = ['carbon', 'Indonesia', 'Crown', 'Local', 'Bleach', 'art', 'Matt', 'Sticker', 'Everycard', 'News', 'Filecard'];
-const sizes = ['23x36', '20x30', '25x36', '27x34', '18', '23', '17x27', '30', '40', '22', '28'];
-const grams = [42, 52, 60, 68, 70, 75, 80, 90, 100, 150, 113, 128, 230, 250, 300, 350, 400];
-const units = ['Card', 'Paper', 'sticker'];
-
 router.use(protect);
 router.get('/', authorize('admin', 'company_user'), requireModule('products', 'view'), listProducts);
 router.get('/:id', authorize('admin', 'company_user', 'customer'), requireModule('products', 'view'), getProduct);
@@ -27,10 +22,11 @@ router.post(
   requireModule('products', 'create'),
   [
     body('name').trim().notEmpty().withMessage('Product name is required'),
-    body('product_type').isIn(paperTypes).withMessage('Product type is invalid'),
-    body('size').isIn(sizes).withMessage('Size is invalid'),
-    body('gram').custom((value) => grams.includes(Number(value))).withMessage('Gram is invalid'),
-    body('unit_type').isIn(units).withMessage('Unit type is invalid'),
+    body('product_type').trim().notEmpty().withMessage('Product type is required'),
+    body('size').optional({ nullable: true, checkFalsy: true }).trim(),
+    body('gram').optional({ nullable: true, checkFalsy: true }).isInt({ min: 0 }).withMessage('Gram is invalid'),
+    body('unit_type').trim().notEmpty().withMessage('Unit type is required'),
+    body('product_specs').optional().isObject().withMessage('Product specs must be an object'),
     body('cost_price').isFloat({ min: 0 }).withMessage('Cost price must be a valid number'),
     body('sale_price').isFloat({ min: 0 }).withMessage('Sale price must be a valid number'),
     body('current_stock').isInt({ min: 0 }).withMessage('Stock must be a valid integer'),
@@ -44,10 +40,11 @@ router.put(
   requireModule('products', 'update'),
   [
     body('name').trim().notEmpty().withMessage('Product name is required'),
-    body('product_type').isIn(paperTypes).withMessage('Product type is invalid'),
-    body('size').isIn(sizes).withMessage('Size is invalid'),
-    body('gram').custom((value) => grams.includes(Number(value))).withMessage('Gram is invalid'),
-    body('unit_type').isIn(units).withMessage('Unit type is invalid'),
+    body('product_type').trim().notEmpty().withMessage('Product type is required'),
+    body('size').optional({ nullable: true, checkFalsy: true }).trim(),
+    body('gram').optional({ nullable: true, checkFalsy: true }).isInt({ min: 0 }).withMessage('Gram is invalid'),
+    body('unit_type').trim().notEmpty().withMessage('Unit type is required'),
+    body('product_specs').optional().isObject().withMessage('Product specs must be an object'),
     body('cost_price').isFloat({ min: 0 }).withMessage('Cost price must be a valid number'),
     body('sale_price').isFloat({ min: 0 }).withMessage('Sale price must be a valid number'),
     body('current_stock').isInt({ min: 0 }).withMessage('Stock must be a valid integer'),

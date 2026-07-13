@@ -32,7 +32,7 @@ async function login(req, res, next) {
     }
 
     const [adminRows] = await pool.query(
-      `SELECT u.id, u.full_name, u.username, u.password, u.role, u.company_id, u.allowed_modules, c.name AS company_name
+      `SELECT u.id, u.full_name, u.username, u.password, u.role, u.company_id, u.allowed_modules, c.name AS company_name, c.field_type
        FROM users u
        INNER JOIN companies c ON c.id = u.company_id
        WHERE u.username = ? AND u.role IN ("admin", "company_user")`,
@@ -48,12 +48,12 @@ async function login(req, res, next) {
       const token = generateToken(user);
       return res.json({
         success: true,
-        data: { id: user.id, full_name: user.full_name, username: user.username, role: user.role, allowed_modules: normalizeModules(user.allowed_modules), token, company_id: user.company_id, company_name: user.company_name },
+        data: { id: user.id, full_name: user.full_name, username: user.username, role: user.role, allowed_modules: normalizeModules(user.allowed_modules), token, company_id: user.company_id, company_name: user.company_name, field_type: user.field_type || 'paper' },
       });
     }
 
     const [customerRows] = await pool.query(
-      `SELECT cu.id, cu.full_name, cu.username, cu.password, cu.company_id, c.name AS company_name
+      `SELECT cu.id, cu.full_name, cu.username, cu.password, cu.company_id, c.name AS company_name, c.field_type
        FROM customers cu
        INNER JOIN companies c ON c.id = cu.company_id
        WHERE cu.username = ? AND cu.customer_type = "star"`,
@@ -69,12 +69,12 @@ async function login(req, res, next) {
       const token = generateToken({ id: customer.id, username: customer.username, role: 'customer', company_id: customer.company_id });
       return res.json({
         success: true,
-        data: { id: customer.id, full_name: customer.full_name, username: customer.username, role: 'customer', token, company_id: customer.company_id, company_name: customer.company_name },
+        data: { id: customer.id, full_name: customer.full_name, username: customer.username, role: 'customer', token, company_id: customer.company_id, company_name: customer.company_name, field_type: customer.field_type || 'paper' },
       });
     }
 
     const [vendorRows] = await pool.query(
-      `SELECT v.id, v.full_name, v.username, v.password, v.company_id, c.name AS company_name
+      `SELECT v.id, v.full_name, v.username, v.password, v.company_id, c.name AS company_name, c.field_type
        FROM vendors v
        INNER JOIN companies c ON c.id = v.company_id
        WHERE v.username = ?`,
@@ -90,7 +90,7 @@ async function login(req, res, next) {
       const token = generateToken({ id: vendor.id, username: vendor.username, role: 'vendor', company_id: vendor.company_id });
       return res.json({
         success: true,
-        data: { id: vendor.id, full_name: vendor.full_name, username: vendor.username, role: 'vendor', token, company_id: vendor.company_id, company_name: vendor.company_name },
+        data: { id: vendor.id, full_name: vendor.full_name, username: vendor.username, role: 'vendor', token, company_id: vendor.company_id, company_name: vendor.company_name, field_type: vendor.field_type || 'paper' },
       });
     }
 

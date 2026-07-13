@@ -17,7 +17,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api', routes);
 
 app.get('/', (req, res) => {
-  res.json({ message: 'PaperTech API is running' });
+  res.json({ message: 'TradeStack API is running' });
 });
 
 app.use(errorHandler);
