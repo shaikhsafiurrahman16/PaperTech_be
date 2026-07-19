@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const pool = require('./config/db');
 const routes = require('./routes');
 const { errorHandler } = require('./middleware/errorMiddleware');
