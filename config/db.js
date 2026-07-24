@@ -14,12 +14,4 @@ const pool = mysql.createPool({
   connectTimeout: 10000,
 });
 
-// const pool = mysql.createPool({
-//   uri:  process.env.LIVE_DB || 'mysql://root:WqbSKxrhzwyIXQEhEUBmxCLjanbMnlnj@tokaido.proxy.rlwy.net:14397/railway',
-//   waitForConnections: true,
-//   connectionLimit: 10,
-//   queueLimit: 0,
-//   connectTimeout: 15000,
-// });
-
 module.exports = pool;

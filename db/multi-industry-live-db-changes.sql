@@ -1,8 +1,5 @@
 USE papertech;
 
--- Multi-industry inventory migration.
--- Includes role/policy columns plus company field type and product industry specs.
--- Safe to run more than once.
 
 ALTER TABLE users
   MODIFY COLUMN role ENUM('super_admin','admin','company_user','customer','vendor') NOT NULL DEFAULT 'admin';
