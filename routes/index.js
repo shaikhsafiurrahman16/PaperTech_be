@@ -15,6 +15,8 @@ const companyRoutes = require('./companyRoutes');
 const userRoutes = require('./userRoutes');
 const policyRoutes = require('./policyRoutes');
 
+const pdfRoutes = require('./pdfRoutes');
+
 const router = express.Router();
 
 router.use('/auth', authRoutes);
@@ -32,5 +34,6 @@ router.use('/chat', chatRoutes);
 router.use('/companies', companyRoutes);
 router.use('/users', userRoutes);
 router.use('/policies', policyRoutes);
+router.use('/pdf', pdfRoutes);
 
 module.exports = router;

@@ -1,6 +1,6 @@
 const pool = require('../config/db');
 
-async function sfindPaymentTarget(connection, companyId, customerId, saleId, invoiceId) {
+async function findPaymentTarget(connection, companyId, customerId, saleId, invoiceId) {
   let relatedSale = null;
   let relatedInvoice = null;
   let targetSaleId = saleId || null;

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{REPORT_TITLE}}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #0f172a;
+      background: #ffffff;
+      padding: 32px;
+      line-height: 1.5;
+      font-size: 13px;
+    }
+
+    .report-card {
+      max-width: 900px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 36px;
+      box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.05);
+    }
+
+    /* Header Section */
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid #f1f5f9;
+      padding-bottom: 24px;
+      margin-bottom: 24px;
+    }
+
+    .brand-container {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-logo-badge {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #2563eb 0%, #059669 100%);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      letter-spacing: 0.5px;
+      box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
+    }
+
+    .brand-info h1 {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 1.2px;
+      color: #0f172a;
+      text-transform: uppercase;
+      line-height: 1.1;
+    }
+
+    .brand-info p {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 500;
+      margin-top: 2px;
+    }
+
+    .doc-badge {
+      text-align: right;
+    }
+
+    .doc-type-tag {
+      display: inline-block;
+      padding: 6px 14px;
+      background: #fff7ed;
+      color: #ea580c;
+      font-weight: 700;
+      font-size: 12px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      border: 1px solid #ffedd5;
+    }
+
+    .doc-date {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 6px;
+    }
+
+    /* Summary Cards */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .summary-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .summary-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: #64748b;
+    }
+
+    .summary-val {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-top: 4px;
+    }
+
+    /* Table */
+    .table-container {
+      margin-bottom: 24px;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th {
+      background: #0f172a;
+      color: #ffffff;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      padding: 12px 14px;
+      text-align: left;
+    }
+
+    th.text-right, td.text-right {
+      text-align: right;
+    }
+
+    td {
+      padding: 11px 14px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #334155;
+      font-size: 12px;
+    }
+
+    tr:nth-child(even) td {
+      background-color: #f8fafc;
+    }
+
+    /* QR Code & Post-QR Section */
+    .qr-post-section {
+      border-top: 2px solid #f1f5f9;
+      padding-top: 24px;
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: 130px 1fr;
+      gap: 24px;
+      align-items: center;
+      background: #f8fafc;
+      border-radius: 14px;
+      padding: 20px;
+      border: 1px solid #e2e8f0;
+    }
+
+    .qr-code-box {
+      background: #ffffff;
+      padding: 8px;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .qr-code-box img {
+      width: 100px;
+      height: 100px;
+      display: block;
+    }
+
+    .qr-code-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    .post-qr-details {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .meta-badge-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .meta-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #ffffff;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #1e293b;
+      border: 1px solid #cbd5e1;
+    }
+
+    .meta-badge .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+    }
+
+    .terms-box {
+      font-size: 11px;
+      color: #64748b;
+      line-height: 1.4;
+    }
+
+    .footer-note {
+      text-align: center;
+      font-size: 10px;
+      color: #94a3b8;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="report-card">
+    <!-- Header -->
+    <div class="header-bar">
+      <div class="brand-container">
+        <div class="brand-logo-badge">TS</div>
+        <div class="brand-info">
+          <h1>{{COMPANY_NAME}}</h1>
+          <p>Product Catalog & Inventory Stock Valuation</p>
+        </div>
+      </div>
+      <div class="doc-badge">
+        <div class="doc-type-tag">Inventory Report</div>
+        <div class="doc-date">Generated: {{GENERATED_AT}}</div>
+      </div>
+    </div>
+
+    <!-- Summary Metrics -->
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-label">Total Product Items</div>
+        <div class="summary-val">{{TOTAL_ITEMS}}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Total Stock (Sheets)</div>
+        <div class="summary-val">{{TOTAL_STOCK}}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Total Valuation (Estimate)</div>
+        <div class="summary-val">Rs. {{TOTAL_VALUATION}}</div>
+      </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Product Name</th>
+            <th>GSM</th>
+            <th>Size</th>
+            <th class="text-right">Stock Quantity</th>
+            <th class="text-right">Sale Price</th>
+            <th class="text-right">Purchase Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{TABLE_ROWS}}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- QR Code & Post-QR Data -->
+    <div class="qr-post-section">
+      <div class="qr-code-box">
+        <img src="{{QR_CODE_DATA_URL}}" alt="Verification QR Code">
+        <span class="qr-code-label">Scan to Verify</span>
+      </div>
+      <div class="post-qr-details">
+        <div class="meta-badge-row">
+          <div class="meta-badge">
+            <span class="dot"></span>
+            <span>Inventory Verified</span>
+          </div>
+          <div class="meta-badge">Ref: {{VERIFICATION_REF}}</div>
+        </div>
+        <div class="terms-box">
+          <strong>Stock Record:</strong>
+          Stock counts and GSM specs are updated continuously. All unit rates reflect active inventory prices.
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-note">
+      End of Inventory Report. {{COMPANY_NAME}} | Powered by TradeStack.
+    </div>
+  </div>
+</body>
+</html>
