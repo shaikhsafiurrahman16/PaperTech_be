@@ -40,22 +40,13 @@ async function ensureDefaultAdmin() {
   }
 }
 
-// const PORT = process.env.PORT || 5000;
-// app.listen(PORT, async () => {
-//   console.log(`Server running on port ${PORT}`);
-//   await ensureDefaultAdmin();
-// });
-
-
 const PORT = process.env.PORT || 5000;
 
-// Local development ke liye listen karega
-if (process.env.NODE_ENV !== 'production') {
+if (require.main === module) {
   app.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
     await ensureDefaultAdmin();
   });
 }
 
-// Vercel deployment ke liye app ko export karna ZAROORI hai
 module.exports = app;
